@@ -85,6 +85,12 @@ class AplicacionGrafos:
         self.ultimo_grafo = None
         self.ultimo_resultado = None
         
+        # Variables para Floyd-Warshall (consultas de ruta)
+        self.floyd_dist = None
+        self.floyd_next = None
+        self.floyd_nodos = None
+        self.floyd_nodo_a_idx = None
+        
         # Configurar root background
         self.root.configure(bg=self.colors['light'])
         
@@ -176,6 +182,42 @@ class AplicacionGrafos:
         color = colores.get(tipo, self.colors['secondary'])
         
         self.status_bar.config(text=f"{icono}  {mensaje}", fg=color)
+    
+    def _parsear_arista(self, linea, es_dirigido_global=False):
+        """
+        Parsea una arista con soporte para grafos híbridos.
+        
+        Formato:
+        - "A B 5"     → Bidireccional si es_dirigido_global=False, Unidireccional si True
+        - "A B 5 ->"  → SIEMPRE unidireccional A→B (ignora checkbox)
+        - "A B 5 <->" → SIEMPRE bidireccional A↔B (ignora checkbox)
+        
+        Retorna: (u, v, peso, es_bidireccional)
+        """
+        partes = linea.strip().split()
+        if len(partes) < 3:
+            return None
+        
+        u, v = partes[0], partes[1]
+        try:
+            peso = float(partes[2])
+        except ValueError:
+            return None
+        
+        # Detectar sufijo de dirección
+        sufijo = partes[3] if len(partes) >= 4 else None
+        
+        if sufijo == '->':
+            # Forzar unidireccional
+            es_bidireccional = False
+        elif sufijo == '<->' or sufijo == '<>':
+            # Forzar bidireccional
+            es_bidireccional = True
+        else:
+            # Usar configuración global del checkbox
+            es_bidireccional = not es_dirigido_global
+        
+        return (u, v, peso, es_bidireccional)
         
     def crear_pestaña_arbol_minimo(self):
         """Pestaña para Kruskal y Prim"""
@@ -194,11 +236,11 @@ class AplicacionGrafos:
         frame_info.pack(fill='x', pady=5)
         
         ttk.Label(frame_info, text="• Una arista por línea: nodo1 nodo2 peso", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         ttk.Label(frame_info, text="• Los nodos pueden ser letras (A,B,C) o números (1,2,3)", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         ttk.Label(frame_info, text="• El peso puede ser decimal (ej: 5.5)", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         
         # Botones de ejemplo
         frame_ejemplos = ttk.Frame(frame_izq)
@@ -212,7 +254,7 @@ class AplicacionGrafos:
         ttk.Button(frame_ejemplos, text="Limpiar", 
                   command=lambda: self.txt_aristas.delete('1.0', 'end')).pack(side='left', padx=2)
         
-        self.txt_aristas = scrolledtext.ScrolledText(frame_izq, height=15, width=40)
+        self.txt_aristas = scrolledtext.ScrolledText(frame_izq, height=15, width=40, font=('Consolas', 11))
         self.txt_aristas.pack(fill='both', expand=True, pady=5)
         
         # Botones
@@ -243,7 +285,7 @@ class AplicacionGrafos:
         frame_der = ttk.LabelFrame(frame, text="Resultados", padding=10)
         frame_der.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        self.txt_resultado_mst = scrolledtext.ScrolledText(frame_der, height=20, width=60)
+        self.txt_resultado_mst = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_mst.pack(fill='both', expand=True)
         
         # Canvas para gráfico
@@ -271,18 +313,25 @@ class AplicacionGrafos:
         ttk.Label(frame_info_d, text="📌 GRAFOS DIRIGIDOS (marcar checkbox):", 
                  font=('Arial', 9, 'bold'), foreground='#2C3E50').pack(anchor='w', pady=(5, 2))
         ttk.Label(frame_info_d, text="   • Cada línea es UNA arista con dirección única", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         ttk.Label(frame_info_d, text="   • Ejemplo: 2 6 6 significa 2→6 con peso 6", 
-                 font=('Arial', 9)).pack(anchor='w')
-        ttk.Label(frame_info_d, text="   • Si 6→2 tiene otro peso, agregar: 6 2 7", 
-                 font=('Arial', 9), foreground='#3498DB').pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         
         ttk.Label(frame_info_d, text="📌 GRAFOS NO DIRIGIDOS (sin marcar):", 
-                 font=('Arial', 9, 'bold'), foreground='#2C3E50').pack(anchor='w', pady=(5, 2))
+                 font=('Arial', 10, 'bold'), foreground='#2C3E50').pack(anchor='w', pady=(5, 2))
         ttk.Label(frame_info_d, text="   • Cada línea crea aristas en AMBAS direcciones", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         ttk.Label(frame_info_d, text="   • Ejemplo: A B 5 crea A→B y B→A (ambas peso 5)", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
+        
+        ttk.Label(frame_info_d, text="� GRAFOS HÍBRIDOS (mezclar ambos):", 
+                 font=('Arial', 10, 'bold'), foreground='#E74C3C').pack(anchor='w', pady=(5, 2))
+        ttk.Label(frame_info_d, text="   • Agregar sufijo -> para forzar UNA dirección", 
+                 font=('Arial', 10)).pack(anchor='w')
+        ttk.Label(frame_info_d, text="   • Ejemplo: 1 2 5 (bidireccional) + 6 4 1 -> (solo 6→4)", 
+                 font=('Arial', 10), foreground='#E74C3C').pack(anchor='w')
+        ttk.Label(frame_info_d, text="   • Útil para calles de un solo sentido en una red", 
+                 font=('Arial', 9, 'italic'), foreground='#7F8C8D').pack(anchor='w')
         
         # Botones de ejemplo
         frame_ej = ttk.Frame(frame_izq)
@@ -295,7 +344,7 @@ class AplicacionGrafos:
         ttk.Button(frame_ej, text="Dirigido ➡️", 
                   command=lambda: self.cargar_ejemplo_dijkstra('dirigido')).pack(side='left', padx=2)
         
-        self.txt_aristas_dijkstra = scrolledtext.ScrolledText(frame_izq, height=10, width=40)
+        self.txt_aristas_dijkstra = scrolledtext.ScrolledText(frame_izq, height=10, width=40, font=('Consolas', 11))
         self.txt_aristas_dijkstra.pack(fill='both', expand=True, pady=5)
         
         # Frame para configuración
@@ -331,7 +380,7 @@ class AplicacionGrafos:
         frame_der = ttk.LabelFrame(frame, text="Resultados", padding=10)
         frame_der.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        self.txt_resultado_dijkstra = scrolledtext.ScrolledText(frame_der, height=20, width=60)
+        self.txt_resultado_dijkstra = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_dijkstra.pack(fill='both', expand=True)
         
         # Canvas para gráfico
@@ -353,7 +402,7 @@ class AplicacionGrafos:
         frame_info_fw = ttk.Frame(frame_izq)
         frame_info_fw.pack(fill='x', pady=5)
         
-        info_text = tk.Text(frame_info_fw, height=7, wrap='word', font=('Arial', 9), 
+        info_text = tk.Text(frame_info_fw, height=7, wrap='word', font=('Arial', 11), 
                            bg='#ECF0F1', relief='flat', padx=10, pady=5)
         info_text.pack(fill='x')
         
@@ -363,15 +412,18 @@ class AplicacionGrafos:
         info_text.insert('end', " (marcar checkbox):\n", 'normal')
         info_text.insert('end', "   • Cada línea es UNA arista: ", 'normal')
         info_text.insert('end', "2 6 6", 'example')
-        info_text.insert('end', " significa 2→6 con peso 6\n", 'normal')
-        info_text.insert('end', "   • Si 6→2 tiene otro peso, agregar línea separada: ", 'normal')
-        info_text.insert('end', "6 2 7\n\n", 'example')
+        info_text.insert('end', " significa 2→6 con peso 6\n\n", 'normal')
         info_text.insert('end', "🔹 GRAFO NO DIRIGIDO", 'bold')
         info_text.insert('end', " (desmarcar checkbox):\n", 'normal')
-        info_text.insert('end', "   • Cada línea crea DOS aristas (ida y vuelta con mismo peso)\n", 'normal')
-        info_text.insert('end', "   • ", 'normal')
+        info_text.insert('end', "   • Cada línea crea DOS aristas: ", 'normal')
         info_text.insert('end', "2 6 6", 'example')
-        info_text.insert('end', " crea automáticamente 2→6 y 6→2, ambos con peso 6", 'normal')
+        info_text.insert('end', " crea 2→6 y 6→2\n\n", 'normal')
+        info_text.insert('end', "� GRAFO HÍBRIDO", 'bold')
+        info_text.insert('end', " (agregar sufijo ->):\n", 'normal')
+        info_text.insert('end', "   • Mezcla aristas bidireccionales y unidireccionales\n", 'normal')
+        info_text.insert('end', "   • Ejemplo: ", 'normal')
+        info_text.insert('end', "6 4 1 ->", 'example')
+        info_text.insert('end', " fuerza SOLO 6→4 (ignora checkbox)", 'normal')
         
         # Configurar tags de colores
         info_text.tag_config('header', foreground='#2C3E50', font=('Arial', 10, 'bold'))
@@ -389,8 +441,10 @@ class AplicacionGrafos:
                   command=lambda: self.cargar_ejemplo_floyd('dirigido')).pack(side='left', padx=2)
         ttk.Button(frame_ej_fw, text="No Dirigido ↔️", 
                   command=lambda: self.cargar_ejemplo_floyd('no_dirigido')).pack(side='left', padx=2)
+        ttk.Button(frame_ej_fw, text="🔥 Híbrido", 
+                  command=lambda: self.cargar_ejemplo_floyd('hibrido')).pack(side='left', padx=2)
         
-        self.txt_aristas_fw = scrolledtext.ScrolledText(frame_izq, height=10, width=40)
+        self.txt_aristas_fw = scrolledtext.ScrolledText(frame_izq, height=10, width=40, font=('Consolas', 11))
         self.txt_aristas_fw.pack(fill='both', expand=True, pady=5)
         self.txt_aristas_fw.insert('1.0', "1 2 3\n1 3 8\n1 5 -4\n2 4 1\n2 5 7\n3 2 4\n4 1 2\n4 3 -5\n5 4 6")
         
@@ -402,7 +456,7 @@ class AplicacionGrafos:
         ttk.Checkbutton(frame_config_fw, text="Grafo Dirigido (aristas unidireccionales)", 
                        variable=self.var_dirigido_floyd).pack(anchor='w')
         
-        # Botones
+        # Botones principales
         frame_botones = ttk.Frame(frame_izq)
         frame_botones.pack(pady=10)
         
@@ -411,11 +465,33 @@ class AplicacionGrafos:
         ttk.Button(frame_botones, text="🗑️ Limpiar", 
                   command=lambda: self.txt_resultado_fw.delete('1.0', 'end')).pack(side='left', padx=5)
         
+        # Frame para consultar ruta específica
+        frame_consulta = ttk.LabelFrame(frame_izq, text="🔍 Consultar Ruta Específica", padding=10)
+        frame_consulta.pack(fill='x', pady=10)
+        
+        ttk.Label(frame_consulta, text="Ejecuta Floyd-Warshall primero, luego consulta:", 
+                 font=('Arial', 9, 'italic'), foreground='#7F8C8D').pack(anchor='w', pady=(0, 5))
+        
+        # Origen y destino
+        frame_od_fw = ttk.Frame(frame_consulta)
+        frame_od_fw.pack(fill='x', pady=5)
+        
+        ttk.Label(frame_od_fw, text="Origen:", font=('Arial', 9, 'bold')).pack(side='left', padx=5)
+        self.entry_origen_fw = ttk.Entry(frame_od_fw, width=10)
+        self.entry_origen_fw.pack(side='left', padx=5)
+        
+        ttk.Label(frame_od_fw, text="Destino:", font=('Arial', 9, 'bold')).pack(side='left', padx=5)
+        self.entry_destino_fw = ttk.Entry(frame_od_fw, width=10)
+        self.entry_destino_fw.pack(side='left', padx=5)
+        
+        ttk.Button(frame_consulta, text="📍 Consultar Ruta", 
+                  command=self.consultar_ruta_floyd).pack(pady=5)
+        
         # Panel derecho
         frame_der = ttk.LabelFrame(frame, text="Resultados", padding=10)
         frame_der.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        self.txt_resultado_fw = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Courier', 9))
+        self.txt_resultado_fw = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_fw.pack(fill='both', expand=True)
         
         # Canvas para gráfico
@@ -433,7 +509,7 @@ class AplicacionGrafos:
         ttk.Label(frame_izq, text="Ingrese las aristas (formato: origen destino capacidad):", 
                  font=('Arial', 11, 'bold')).pack(anchor='w', pady=5)
         
-        self.txt_aristas_flujo = scrolledtext.ScrolledText(frame_izq, height=12, width=40)
+        self.txt_aristas_flujo = scrolledtext.ScrolledText(frame_izq, height=12, width=40, font=('Consolas', 11))
         self.txt_aristas_flujo.pack(fill='both', expand=True, pady=5)
         self.txt_aristas_flujo.insert('1.0', "1 2 20\n1 3 30\n2 3 40\n2 4 30\n3 4 20\n3 5 20\n4 5 20")
         
@@ -460,7 +536,7 @@ class AplicacionGrafos:
         frame_der = ttk.LabelFrame(frame, text="Resultados", padding=10)
         frame_der.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        self.txt_resultado_flujo = scrolledtext.ScrolledText(frame_der, height=20, width=60)
+        self.txt_resultado_flujo = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_flujo.pack(fill='both', expand=True)
         
         # Canvas para gráfico
@@ -480,7 +556,7 @@ class AplicacionGrafos:
         ttk.Label(frame_izq, text="Formato: valores separados por espacios, una fila por línea", 
                  font=('Arial', 9, 'italic')).pack(anchor='w')
         
-        self.txt_matriz_juego = scrolledtext.ScrolledText(frame_izq, height=10, width=40)
+        self.txt_matriz_juego = scrolledtext.ScrolledText(frame_izq, height=10, width=40, font=('Consolas', 11))
         self.txt_matriz_juego.pack(fill='both', expand=True, pady=5)
         self.txt_matriz_juego.insert('1.0', "2 1 0\n3 2 -1\n1 -1 -2")
         
@@ -507,7 +583,7 @@ class AplicacionGrafos:
         frame_der = ttk.LabelFrame(frame, text="Resultados", padding=10)
         frame_der.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        self.txt_resultado_juego = scrolledtext.ScrolledText(frame_der, height=20, width=60)
+        self.txt_resultado_juego = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_juego.pack(fill='both', expand=True)
     
     def _calcular_layout_inteligente(self, G, seed=None):
@@ -692,6 +768,21 @@ F G 11"""
 5 4 6"""
             self.var_dirigido_floyd.set(True)
             mensaje = "Ejemplo DIRIGIDO cargado.\nCada arista es unidireccional.\nObserva que no todas las conexiones son bidireccionales."
+        elif tipo == 'hibrido':
+            ejemplo = """1 2 5
+1 3 3
+2 3 1
+2 4 5
+2 5 2
+3 4 7
+3 7 12
+4 5 3
+4 7 3
+5 6 1
+6 4 1 ->
+7 6 4 ->"""
+            self.var_dirigido_floyd.set(False)
+            mensaje = "🔥 Ejemplo HÍBRIDO cargado!\n\nLa mayoría son BIDIRECCIONALES (sin sufijo).\nPero las últimas 2 son UNIDIRECCIONALES con '->':\n  • 6→4 peso 1 (solo ida)\n  • 7→6 peso 4 (solo ida)\n\n✨ Perfecto para redes mixtas (calles bidireccionales + de un solo sentido)."
         else:  # no_dirigido
             ejemplo = """A B 4
 A C 2
@@ -744,24 +835,22 @@ D E 2"""
             
             for linea in lineas:
                 if linea.strip():
-                    partes = linea.strip().split()
-                    if len(partes) >= 3:
-                        try:
-                            u, v = partes[0], partes[1]
-                            peso = float(partes[2])
-                            aristas.append((u, v, peso))
-                            nodos.add(u)
-                            nodos.add(v)
-                            
-                            if u not in grafo:
-                                grafo[u] = {}
-                            if v not in grafo:
-                                grafo[v] = {}
-                            
-                            grafo[u][v] = peso
-                            grafo[v][u] = peso
-                        except ValueError:
-                            continue
+                    # Los árboles mínimos siempre son NO dirigidos (bidireccionales)
+                    resultado = self._parsear_arista(linea, es_dirigido_global=False)
+                    if resultado:
+                        u, v, peso, es_bidireccional = resultado
+                        # Siempre agregar como bidireccional (MST requiere grafo no dirigido)
+                        aristas.append((u, v, peso))
+                        nodos.add(u)
+                        nodos.add(v)
+                        
+                        if u not in grafo:
+                            grafo[u] = {}
+                        if v not in grafo:
+                            grafo[v] = {}
+                        
+                        grafo[u][v] = peso
+                        grafo[v][u] = peso
             
             if not aristas:
                 messagebox.showerror("Error", "No se encontraron aristas válidas")
@@ -1068,20 +1157,20 @@ D E 2"""
             grafo = {}
             for linea in texto.split('\n'):
                 if linea.strip():
-                    partes = linea.strip().split()
-                    if len(partes) == 3:
-                        u, v, peso = partes[0], partes[1], float(partes[2])
+                    resultado = self._parsear_arista(linea, es_dirigido)
+                    if resultado:
+                        u, v, peso, es_bidireccional = resultado
                         
                         if u not in grafo:
                             grafo[u] = {}
                         if v not in grafo:
                             grafo[v] = {}
                         
-                        # Agregar arista u → v
+                        # Agregar arista u → v siempre
                         grafo[u][v] = peso
                         
-                        # Si NO es dirigido, agregar también v → u
-                        if not es_dirigido:
+                        # Si es bidireccional, agregar también v → u
+                        if es_bidireccional:
                             grafo[v][u] = peso
             
             if origen not in grafo:
@@ -1210,24 +1299,20 @@ D E 2"""
             
             for linea in texto.split('\n'):
                 if linea.strip():
-                    partes = linea.strip().split()
-                    if len(partes) == 3:
-                        try:
-                            u, v = partes[0], partes[1]
-                            peso = float(partes[2])
-                            
-                            # Agregar arista u -> v
-                            if u not in grafo:
-                                grafo[u] = {}
-                            grafo[u][v] = peso
-                            
-                            # Si NO es dirigido, agregar también v -> u con el mismo peso
-                            if not es_dirigido:
-                                if v not in grafo:
-                                    grafo[v] = {}
-                                grafo[v][u] = peso
-                        except ValueError:
-                            continue
+                    resultado = self._parsear_arista(linea, es_dirigido)
+                    if resultado:
+                        u, v, peso, es_bidireccional = resultado
+                        
+                        # Agregar arista u -> v siempre
+                        if u not in grafo:
+                            grafo[u] = {}
+                        grafo[u][v] = peso
+                        
+                        # Si es bidireccional, agregar también v -> u con el mismo peso
+                        if es_bidireccional:
+                            if v not in grafo:
+                                grafo[v] = {}
+                            grafo[v][u] = peso
             
             if not grafo:
                 messagebox.showerror("Error", "No se encontraron aristas válidas")
@@ -1250,21 +1335,23 @@ D E 2"""
             
             dist, next_node, nodos_lista, nodo_a_idx, iteraciones = AlgoritmosGrafos.floyd_warshall(grafo)
             
-            # Mostrar iteraciones paso a paso
+            # Mostrar iteraciones paso a paso con AMBAS MATRICES (D y S)
             self.txt_resultado_fw.insert('end', "📊 ITERACIONES PASO A PASO:\n")
             self.txt_resultado_fw.insert('end', "=" * 60 + "\n\n")
             
             for iter_data in iteraciones:
                 if iter_data['k'] == 0:
-                    self.txt_resultado_fw.insert('end', "🔵 MATRIZ INICIAL:\n")
+                    self.txt_resultado_fw.insert('end', "🔵 ESTADO INICIAL (K=0):\n\n")
                 else:
-                    self.txt_resultado_fw.insert('end', f"\n🔵 ITERACIÓN {iter_data['k']} (vía nodo: {iter_data['nodo_intermedio']}):\n")
+                    self.txt_resultado_fw.insert('end', f"\n{'='*60}\n")
+                    self.txt_resultado_fw.insert('end', f"🔵 ITERACIÓN K={iter_data['k']} (nodo intermedio: {iter_data['nodo_intermedio']})\n")
+                    self.txt_resultado_fw.insert('end', f"{'='*60}\n\n")
                 
                 if iter_data['cambios']:
-                    self.txt_resultado_fw.insert('end', f"   Cambios realizados: {len(iter_data['cambios'])}\n")
+                    self.txt_resultado_fw.insert('end', f"   📝 Cambios realizados: {len(iter_data['cambios'])}\n")
                     for cambio in iter_data['cambios'][:5]:  # Mostrar máximo 5 cambios
                         self.txt_resultado_fw.insert('end', 
-                            f"   • {cambio['origen']}→{cambio['destino']}: ")
+                            f"      • {cambio['origen']}→{cambio['destino']}: ")
                         if cambio['dist_anterior'] == float('inf'):
                             self.txt_resultado_fw.insert('end', "∞")
                         else:
@@ -1273,14 +1360,15 @@ D E 2"""
                             f" → {cambio['dist_nueva']:.1f} (vía {cambio['via']})\n")
                     if len(iter_data['cambios']) > 5:
                         self.txt_resultado_fw.insert('end', 
-                            f"   ... y {len(iter_data['cambios']) - 5} cambios más\n")
+                            f"      ... y {len(iter_data['cambios']) - 5} cambios más\n")
+                    self.txt_resultado_fw.insert('end', "\n")
                 else:
                     if iter_data['k'] > 0:
-                        self.txt_resultado_fw.insert('end', "   ✓ No se realizaron cambios en esta iteración\n")
+                        self.txt_resultado_fw.insert('end', "   ✓ No se realizaron cambios en esta iteración\n\n")
                 
-                # Mostrar matriz actualizada (compacta)
+                # Mostrar MATRIZ D (Distancias)
                 n = len(nodos_lista)
-                self.txt_resultado_fw.insert('end', "\n   Matriz actual:\n")
+                self.txt_resultado_fw.insert('end', "   📐 MATRIZ D (Distancias):\n")
                 self.txt_resultado_fw.insert('end', "      ")
                 for nodo in nodos_lista:
                     self.txt_resultado_fw.insert('end', f"{str(nodo):>6}")
@@ -1289,11 +1377,28 @@ D E 2"""
                 for i, nodo in enumerate(nodos_lista):
                     self.txt_resultado_fw.insert('end', f"   {str(nodo):>4}: ")
                     for j in range(n):
-                        val = iter_data['matriz'][i][j]
+                        val = iter_data['matriz_d'][i][j]
                         if val == float('inf'):
                             self.txt_resultado_fw.insert('end', "   ∞  ")
                         else:
                             self.txt_resultado_fw.insert('end', f"{val:>6.1f}")
+                    self.txt_resultado_fw.insert('end', "\n")
+                
+                # Mostrar MATRIZ S (Predecesores)
+                self.txt_resultado_fw.insert('end', "\n   🧭 MATRIZ S (Predecesores):\n")
+                self.txt_resultado_fw.insert('end', "      ")
+                for nodo in nodos_lista:
+                    self.txt_resultado_fw.insert('end', f"{str(nodo):>6}")
+                self.txt_resultado_fw.insert('end', "\n")
+                
+                for i, nodo in enumerate(nodos_lista):
+                    self.txt_resultado_fw.insert('end', f"   {str(nodo):>4}: ")
+                    for j in range(n):
+                        val = iter_data['matriz_s'][i][j]
+                        if val is None:
+                            self.txt_resultado_fw.insert('end', "   -  ")
+                        else:
+                            self.txt_resultado_fw.insert('end', f"{str(val):>6}")
                     self.txt_resultado_fw.insert('end', "\n")
                 self.txt_resultado_fw.insert('end', "\n")
             
@@ -1319,11 +1424,171 @@ D E 2"""
                         self.txt_resultado_fw.insert('end', f"{val:>6.1f}")
                 self.txt_resultado_fw.insert('end', "\n")
             
+            # Guardar resultados para consultas posteriores
+            self.floyd_dist = dist
+            self.floyd_next = next_node
+            self.floyd_nodos = nodos_lista
+            self.floyd_nodo_a_idx = nodo_a_idx
+            
             # Visualizar el grafo
             self._visualizar_floyd_warshall(grafo, dist, nodos_lista)
             
+            self.txt_resultado_fw.insert('end', "\n" + "="*60 + "\n")
+            self.txt_resultado_fw.insert('end', "💡 TIP: Usa la sección 'Consultar Ruta Específica' arriba\n")
+            self.txt_resultado_fw.insert('end', "    para ver el camino y distancia entre dos nodos.\n")
+            self.txt_resultado_fw.insert('end', "="*60 + "\n")
+            
         except Exception as e:
             messagebox.showerror("Error", f"Error al ejecutar Floyd-Warshall: {str(e)}")
+    
+    def consultar_ruta_floyd(self):
+        """Consulta la ruta y distancia específica entre dos nodos después de Floyd-Warshall"""
+        try:
+            # Verificar que se haya ejecutado Floyd-Warshall primero
+            if not hasattr(self, 'floyd_dist') or self.floyd_dist is None:
+                messagebox.showwarning("Advertencia", 
+                    "Debes ejecutar Floyd-Warshall primero antes de consultar rutas.")
+                return
+            
+            # Obtener origen y destino
+            origen_str = self.entry_origen_fw.get().strip()
+            destino_str = self.entry_destino_fw.get().strip()
+            
+            if not origen_str or not destino_str:
+                messagebox.showwarning("Advertencia", 
+                    "Debes especificar tanto el origen como el destino.")
+                return
+            
+            # Intentar encontrar el nodo en floyd_nodos (puede ser str o int)
+            origen = None
+            destino = None
+            
+            # Buscar origen
+            for nodo in self.floyd_nodos:
+                if str(nodo) == origen_str:
+                    origen = nodo
+                    break
+            
+            # Buscar destino  
+            for nodo in self.floyd_nodos:
+                if str(nodo) == destino_str:
+                    destino = nodo
+                    break
+            
+            # Verificar que los nodos existan
+            if origen is None or destino is None:
+                nodos_disponibles = ', '.join(map(str, sorted(self.floyd_nodos)))
+                messagebox.showerror("Error", 
+                    f"Nodos no válidos.\nNodos disponibles: {nodos_disponibles}")
+                return
+
+            
+            # Obtener índices
+            i = self.floyd_nodo_a_idx[origen]
+            j = self.floyd_nodo_a_idx[destino]
+            
+            # Obtener distancia
+            distancia = self.floyd_dist[i][j]
+            
+            # Reconstruir camino
+            if distancia == float('inf'):
+                messagebox.showinfo("Resultado", 
+                    f"No existe un camino de {origen} a {destino}.\nDistancia: ∞")
+                return
+            
+            if origen == destino:
+                messagebox.showinfo("Resultado", 
+                    f"Origen y destino son el mismo nodo.\nDistancia: 0")
+                return
+            
+            # Reconstruir el camino usando la matriz de sucesores
+            camino = self._reconstruir_camino_floyd(origen, destino)
+            
+            if not camino:
+                messagebox.showinfo("Resultado", 
+                    f"No se pudo reconstruir el camino de {origen} a {destino}.")
+                return
+            
+            # Mostrar resultado en una ventana emergente
+            resultado = f"""
+╔══════════════════════════════════════════════════════╗
+║  RUTA ESPECÍFICA: {origen} → {destino}
+╚══════════════════════════════════════════════════════╝
+
+📍 ORIGEN:    {origen}
+🎯 DESTINO:   {destino}
+📏 DISTANCIA: {distancia:.2f}
+
+🛣️  CAMINO COMPLETO:
+    {' → '.join(map(str, camino))}
+
+📊 DETALLES POR SEGMENTO:
+"""
+            
+            # Calcular distancia de cada segmento
+            for idx in range(len(camino) - 1):
+                nodo_actual = camino[idx]
+                nodo_siguiente = camino[idx + 1]
+                idx_actual = self.floyd_nodo_a_idx[nodo_actual]
+                idx_siguiente = self.floyd_nodo_a_idx[nodo_siguiente]
+                dist_segmento = self.floyd_dist[idx_actual][idx_siguiente]
+                resultado += f"    Paso {idx+1}: {nodo_actual} → {nodo_siguiente}  (distancia: {dist_segmento:.2f})\n"
+            
+            resultado += f"\n{'='*54}\n"
+            resultado += f"✅ DISTANCIA TOTAL: {distancia:.2f}\n"
+            resultado += f"{'='*54}"
+            
+            # Crear ventana con el resultado
+            ventana_resultado = tk.Toplevel(self.root)
+            ventana_resultado.title(f"Ruta: {origen} → {destino}")
+            ventana_resultado.geometry("600x500")
+            
+            # Texto con scroll
+            text_resultado = scrolledtext.ScrolledText(ventana_resultado, 
+                                                       font=('Consolas', 11),
+                                                       wrap='word')
+            text_resultado.pack(fill='both', expand=True, padx=10, pady=10)
+            text_resultado.insert('1.0', resultado)
+            text_resultado.config(state='disabled')
+            
+            # Botón para cerrar
+            ttk.Button(ventana_resultado, text="Cerrar", 
+                      command=ventana_resultado.destroy).pack(pady=10)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al consultar ruta: {str(e)}")
+    
+    def _reconstruir_camino_floyd(self, origen, destino):
+        """Reconstruye el camino entre origen y destino usando la matriz de predecesores"""
+        if origen == destino:
+            return [origen]
+        
+        i = self.floyd_nodo_a_idx[origen]
+        j = self.floyd_nodo_a_idx[destino]
+        
+        if self.floyd_next[i][j] is None:
+            return []
+        
+        # Reconstruir desde el destino hacia el origen usando predecesores
+        camino = [destino]
+        actual = destino
+        
+        while actual != origen:
+            idx_actual = self.floyd_nodo_a_idx[actual]
+            idx_origen = self.floyd_nodo_a_idx[origen]
+            predecesor = self.floyd_next[idx_origen][idx_actual]
+            
+            if predecesor is None or predecesor == actual:
+                return []
+            
+            camino.insert(0, predecesor)
+            actual = predecesor
+            
+            # Protección contra bucles infinitos
+            if len(camino) > len(self.floyd_nodos):
+                return []
+        
+        return camino
     
     def ejecutar_flujo_maximo(self):
         """Ejecuta el algoritmo de Ford-Fulkerson"""
@@ -1348,27 +1613,31 @@ D E 2"""
             
             for linea in texto.split('\n'):
                 if linea.strip():
-                    partes = linea.strip().split()
-                    if len(partes) == 3:
+                    # Flujo máximo normalmente es dirigido, pero soportamos híbrido
+                    resultado = self._parsear_arista(linea, es_dirigido_global=True)
+                    if resultado:
+                        u, v, cap, es_bidireccional = resultado
+                        
+                        # Convertir a enteros si es posible
                         try:
-                            u, v = partes[0], partes[1]
-                            cap = float(partes[2])
-                            
-                            # Convertir a enteros si es posible
-                            try:
-                                u = int(u)
-                                v = int(v)
-                            except:
-                                pass
-                            
-                            nodos.add(u)
-                            nodos.add(v)
-                            
-                            if u not in grafo:
-                                grafo[u] = {}
-                            grafo[u][v] = cap
-                        except ValueError:
-                            continue
+                            u = int(u)
+                            v = int(v)
+                        except:
+                            pass
+                        
+                        nodos.add(u)
+                        nodos.add(v)
+                        
+                        # Agregar arista u → v
+                        if u not in grafo:
+                            grafo[u] = {}
+                        grafo[u][v] = cap
+                        
+                        # Si es bidireccional, agregar también v → u
+                        if es_bidireccional:
+                            if v not in grafo:
+                                grafo[v] = {}
+                            grafo[v][u] = cap
             
             # Asegurar que TODOS los nodos estén en el grafo (incluso sin aristas salientes)
             for nodo in nodos:
@@ -1381,8 +1650,8 @@ D E 2"""
             if destino not in grafo:
                 grafo[destino] = {}
             
-            # Ejecutar Ford-Fulkerson (implementación directa)
-            flujo_maximo, caminos, visitados = self._ford_fulkerson(grafo, origen, destino)
+            # Ejecutar Ford-Fulkerson con iteraciones detalladas
+            flujo_maximo, caminos, visitados, iteraciones = self._ford_fulkerson(grafo, origen, destino)
             
             self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
             self.txt_resultado_flujo.insert('end', "ALGORITMO DE FORD-FULKERSON\n")
@@ -1390,7 +1659,43 @@ D E 2"""
             self.txt_resultado_flujo.insert('end', f"Origen: {origen}\n")
             self.txt_resultado_flujo.insert('end', f"Destino: {destino}\n\n")
             
-            self.txt_resultado_flujo.insert('end', "Caminos aumentantes:\n")
+            # Mostrar iteraciones paso a paso
+            self.txt_resultado_flujo.insert('end', "📊 ITERACIONES PASO A PASO:\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
+            
+            for iter_data in iteraciones:
+                if iter_data['tipo'] == 'camino_encontrado':
+                    self.txt_resultado_flujo.insert('end', 
+                        f"🔵 ITERACIÓN {iter_data['num']}:\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   BFS desde {origen} → Nodos explorados: {', '.join(map(str, iter_data['nodos_explorados']))}\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   ✅ Camino aumentante encontrado: {' → '.join(map(str, iter_data['camino']))}\n\n")
+                    
+                    self.txt_resultado_flujo.insert('end', "   Capacidades residuales en el camino:\n")
+                    for u, v, cap in iter_data['aristas']:
+                        self.txt_resultado_flujo.insert('end', 
+                            f"      {u} → {v}: {cap:.1f}\n")
+                    
+                    self.txt_resultado_flujo.insert('end', 
+                        f"\n   🔹 Flujo del camino (cuello de botella): {iter_data['flujo_camino']:.1f}\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   📈 Flujo acumulado: {iter_data['flujo_acumulado']:.1f}\n\n")
+                    
+                elif iter_data['tipo'] == 'no_camino':
+                    self.txt_resultado_flujo.insert('end', 
+                        f"🔵 ITERACIÓN {iter_data['num']}:\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   BFS desde {origen} → Nodos explorados: {', '.join(map(str, iter_data['nodos_explorados']))}\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   ❌ No se encontró camino aumentante\n")
+                    self.txt_resultado_flujo.insert('end', 
+                        f"   ✓ Algoritmo terminado\n\n")
+            
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', "✅ RESUMEN DE CAMINOS AUMENTANTES\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
+            
             for i, (camino, flujo) in enumerate(caminos, 1):
                 self.txt_resultado_flujo.insert('end', 
                     f"  {i}. {' → '.join(map(str, camino))}: flujo = {flujo}\n")
@@ -1399,6 +1704,42 @@ D E 2"""
             self.txt_resultado_flujo.insert('end', f"FLUJO MÁXIMO: {flujo_maximo}\n")
             self.txt_resultado_flujo.insert('end', f"{'='*60}\n")
             
+            # Calcular flujo real en cada arista
+            flujos = {}
+            for u in grafo:
+                for v in grafo[u]:
+                    flujos[(u, v)] = 0
+            
+            # Sumar el flujo de cada camino
+            for camino, flujo in caminos:
+                for i in range(len(camino) - 1):
+                    u, v = camino[i], camino[i + 1]
+                    if (u, v) in flujos:
+                        flujos[(u, v)] += flujo
+            
+            # Mostrar tabla de flujos
+            self.txt_resultado_flujo.insert('end', "\n" + "=" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', "📋 TABLA DE FLUJOS POR ARISTA\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
+            self.txt_resultado_flujo.insert('end', "  Arista      Capacidad    Flujo    Residual\n")
+            self.txt_resultado_flujo.insert('end', "-" * 60 + "\n")
+            
+            # Recopilar todas las aristas con capacidad
+            todas_aristas = []
+            for u in sorted(grafo.keys()):
+                for v in sorted(grafo[u].keys()):
+                    cap = grafo[u][v]
+                    flujo_usado = flujos.get((u, v), 0)
+                    residual = cap - flujo_usado
+                    todas_aristas.append((u, v, cap, flujo_usado, residual))
+            
+            # Mostrar tabla ordenada
+            for u, v, cap, flujo_usado, residual in todas_aristas:
+                self.txt_resultado_flujo.insert('end', 
+                    f"  {str(u):>3} → {str(v):<3}     {cap:>6.1f}      {flujo_usado:>6.1f}     {residual:>6.1f}\n")
+            
+            self.txt_resultado_flujo.insert('end', "-" * 60 + "\n")
+            
             # Corte mínimo (visitados ya viene del algoritmo)
             corte = []
             cap_corte = 0
@@ -1406,11 +1747,14 @@ D E 2"""
                 if u in grafo:
                     for v in grafo[u]:
                         if v not in visitados:
-                            corte.append((u, v))
+                            corte.append((u, v, grafo[u][v]))
                             cap_corte += grafo[u][v]
             
-            self.txt_resultado_flujo.insert('end', "\n=== CORTE MÍNIMO ===\n\n")
-            self.txt_resultado_flujo.insert('end', f"Nodos alcanzables: {sorted(visitados)}\n")
+            self.txt_resultado_flujo.insert('end', "\n" + "=" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', "🔪 CORTE MÍNIMO\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
+            self.txt_resultado_flujo.insert('end', f"Nodos alcanzables desde {origen}: {sorted(visitados)}\n")
+            self.txt_resultado_flujo.insert('end', f"Nodos no alcanzables: {sorted(set(grafo.keys()) - visitados)}\n")
             self.txt_resultado_flujo.insert('end', "\nAristas en el corte:\n")
             for u, v, cap in corte:
                 self.txt_resultado_flujo.insert('end', f"  {u} → {v}: {cap}\n")
@@ -1473,6 +1817,26 @@ D E 2"""
                 estrategia_a = resultado.x[:-1]
                 valor_juego = resultado.x[-1]
                 
+                # Mostrar explicación del proceso
+                self.txt_resultado_juego.insert('end', "\n" + "=" * 60 + "\n")
+                self.txt_resultado_juego.insert('end', "📊 PROCESO DE SOLUCIÓN\n")
+                self.txt_resultado_juego.insert('end', "=" * 60 + "\n\n")
+                
+                self.txt_resultado_juego.insert('end', "🔹 PASO 1: Formulación del problema del Jugador A\n")
+                self.txt_resultado_juego.insert('end', "   Maximizar: v (valor del juego)\n")
+                self.txt_resultado_juego.insert('end', f"   Variables: p₁, p₂, ..., p_{m}, v\n")
+                self.txt_resultado_juego.insert('end', f"   Restricciones ({n} restricciones, una por columna):\n")
+                for j in range(min(3, n)):  # Mostrar máximo 3 restricciones
+                    restriccion = " + ".join([f"{matriz[i][j]:.1f}p{i+1}" for i in range(m)])
+                    self.txt_resultado_juego.insert('end', f"      {restriccion} ≥ v\n")
+                if n > 3:
+                    self.txt_resultado_juego.insert('end', f"      ... y {n-3} restricciones más\n")
+                self.txt_resultado_juego.insert('end', f"      p₁ + p₂ + ... + p_{m} = 1\n")
+                self.txt_resultado_juego.insert('end', "      pᵢ ≥ 0 para todo i\n\n")
+                
+                self.txt_resultado_juego.insert('end', f"   ✓ Problema resuelto con método Simplex\n")
+                self.txt_resultado_juego.insert('end', f"   ✓ Iteraciones del simplex: {resultado.nit if hasattr(resultado, 'nit') else 'N/A'}\n\n")
+                
                 # Calcular estrategia del Jugador B (columnas)
                 c_b = np.zeros(n + 1)
                 c_b[-1] = 1
@@ -1494,9 +1858,25 @@ D E 2"""
                 
                 estrategia_b = resultado_b.x[:-1] if resultado_b.success else None
                 
+                self.txt_resultado_juego.insert('end', "🔹 PASO 2: Formulación del problema del Jugador B\n")
+                self.txt_resultado_juego.insert('end', "   Minimizar: v (valor del juego)\n")
+                self.txt_resultado_juego.insert('end', f"   Variables: q₁, q₂, ..., q_{n}, v\n")
+                self.txt_resultado_juego.insert('end', f"   Restricciones ({m} restricciones, una por fila):\n")
+                for i in range(min(3, m)):  # Mostrar máximo 3 restricciones
+                    restriccion = " + ".join([f"{matriz[i][j]:.1f}q{j+1}" for j in range(n)])
+                    self.txt_resultado_juego.insert('end', f"      {restriccion} ≤ v\n")
+                if m > 3:
+                    self.txt_resultado_juego.insert('end', f"      ... y {m-3} restricciones más\n")
+                self.txt_resultado_juego.insert('end', f"      q₁ + q₂ + ... + q_{n} = 1\n")
+                self.txt_resultado_juego.insert('end', "      qⱼ ≥ 0 para todo j\n\n")
+                
+                if resultado_b.success:
+                    self.txt_resultado_juego.insert('end', f"   ✓ Problema resuelto con método Simplex\n")
+                    self.txt_resultado_juego.insert('end', f"   ✓ Iteraciones del simplex: {resultado_b.nit if hasattr(resultado_b, 'nit') else 'N/A'}\n\n")
+                
                 # Mostrar resultados
-                self.txt_resultado_juego.insert('end', "\n" + "=" * 60 + "\n")
-                self.txt_resultado_juego.insert('end', "SOLUCIÓN CON PROGRAMACIÓN LINEAL\n")
+                self.txt_resultado_juego.insert('end', "=" * 60 + "\n")
+                self.txt_resultado_juego.insert('end', "✅ SOLUCIÓN ÓPTIMA\n")
                 self.txt_resultado_juego.insert('end', "=" * 60 + "\n\n")
                 
                 # Jugador A
@@ -1994,7 +2374,7 @@ D E 2"""
             messagebox.showerror("Error", f"No se pudo visualizar: {str(e)}")
     
     def _ford_fulkerson(self, grafo, origen, destino):
-        """Implementación del algoritmo Ford-Fulkerson para flujo máximo"""
+        """Implementación del algoritmo Ford-Fulkerson para flujo máximo con iteraciones"""
         from collections import defaultdict, deque
         
         # Crear grafo residual
@@ -2007,40 +2387,61 @@ D E 2"""
                 if u not in residual[v]:
                     residual[v][u] = 0
         
-        def bfs_camino(source, sink):
-            """Busca un camino aumentante usando BFS"""
+        # Lista para guardar iteraciones
+        iteraciones = []
+        
+        def bfs_camino_detallado(source, sink, num_iter):
+            """Busca un camino aumentante usando BFS y registra el proceso"""
             visitado = {source}
             cola = deque([(source, [source])])
+            nodos_explorados = []
             
             while cola:
                 nodo_actual, camino = cola.popleft()
+                nodos_explorados.append(nodo_actual)
                 
                 if nodo_actual == sink:
-                    return camino
+                    return camino, nodos_explorados
                 
                 for vecino in residual[nodo_actual]:
                     if vecino not in visitado and residual[nodo_actual][vecino] > 0:
                         visitado.add(vecino)
                         cola.append((vecino, camino + [vecino]))
             
-            return None
+            return None, nodos_explorados
         
         flujo_total = 0
         caminos_encontrados = []
+        num_iteracion = 0
         
         # Encontrar caminos aumentantes
         while True:
-            camino = bfs_camino(origen, destino)
+            num_iteracion += 1
+            camino, nodos_explorados = bfs_camino_detallado(origen, destino, num_iteracion)
+            
             if not camino:
+                # No hay más caminos aumentantes
+                iteraciones.append({
+                    'num': num_iteracion,
+                    'tipo': 'no_camino',
+                    'nodos_explorados': nodos_explorados,
+                    'flujo_acumulado': flujo_total
+                })
                 break
             
-            # Encontrar flujo mínimo en el camino
+            # Encontrar flujo mínimo (cuello de botella) en el camino
+            aristas_camino = []
             flujo_minimo = float('inf')
             for i in range(len(camino) - 1):
                 u, v = camino[i], camino[i + 1]
-                flujo_minimo = min(flujo_minimo, residual[u][v])
+                cap_residual = residual[u][v]
+                aristas_camino.append((u, v, cap_residual))
+                flujo_minimo = min(flujo_minimo, cap_residual)
             
-            # Actualizar residual
+            # Guardar estado antes de actualizar
+            capacidades_antes = {(u, v): residual[u][v] for u in residual for v in residual[u] if residual[u][v] > 0}
+            
+            # Actualizar grafo residual
             for i in range(len(camino) - 1):
                 u, v = camino[i], camino[i + 1]
                 residual[u][v] -= flujo_minimo
@@ -2048,8 +2449,20 @@ D E 2"""
             
             flujo_total += flujo_minimo
             caminos_encontrados.append((camino, flujo_minimo))
+            
+            # Registrar iteración
+            iteraciones.append({
+                'num': num_iteracion,
+                'tipo': 'camino_encontrado',
+                'camino': camino,
+                'aristas': aristas_camino,
+                'flujo_camino': flujo_minimo,
+                'flujo_acumulado': flujo_total,
+                'nodos_explorados': nodos_explorados,
+                'capacidades_residuales_antes': capacidades_antes
+            })
         
-        # Encontrar nodos visitables desde origen en grafo residual
+        # Encontrar nodos visitables desde origen en grafo residual (corte mínimo)
         visitados = {origen}
         cola = deque([origen])
         while cola:
@@ -2059,10 +2472,23 @@ D E 2"""
                     visitados.add(v)
                     cola.append(v)
         
-        return flujo_total, caminos_encontrados, visitados
+        return flujo_total, caminos_encontrados, visitados, iteraciones
     
     def _visualizar_flujo_maximo(self, grafo, caminos, origen, destino, visitados):
-        """Visualiza el grafo de flujo máximo"""
+        """Visualiza el grafo de flujo máximo con flujos en las aristas"""
+        # Calcular flujo real en cada arista
+        flujos = {}
+        for u in grafo:
+            for v in grafo[u]:
+                flujos[(u, v)] = 0
+        
+        # Sumar el flujo de cada camino
+        for camino, flujo in caminos:
+            for i in range(len(camino) - 1):
+                u, v = camino[i], camino[i + 1]
+                if (u, v) in flujos:
+                    flujos[(u, v)] += flujo
+        
         # Crear nueva ventana
         ventana = tk.Toplevel(self.root)
         ventana.title(f"Flujo Máximo: {origen} → {destino}")
@@ -2072,7 +2498,8 @@ D E 2"""
         G = nx.DiGraph()
         for u in grafo:
             for v, cap in grafo[u].items():
-                G.add_edge(u, v, capacity=cap)
+                flujo_arista = flujos.get((u, v), 0)
+                G.add_edge(u, v, capacity=cap, flow=flujo_arista)
         
         # Crear figura
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -2097,43 +2524,75 @@ D E 2"""
         
         # Dibujar aristas con diferentes colores según si cruzan el corte
         edges_corte = []
-        edges_normal = []
+        edges_saturadas = []
+        edges_con_flujo = []
+        edges_sin_flujo = []
         
         for u, v in G.edges():
+            flujo_arista = flujos.get((u, v), 0)
+            cap_arista = grafo[u][v]
+            
             if u in visitados and v not in visitados:
                 edges_corte.append((u, v))
+            elif flujo_arista >= cap_arista - 0.01:  # Saturada
+                edges_saturadas.append((u, v))
+            elif flujo_arista > 0:
+                edges_con_flujo.append((u, v))
             else:
-                edges_normal.append((u, v))
+                edges_sin_flujo.append((u, v))
         
-        # Aristas normales
-        nx.draw_networkx_edges(G, pos, edgelist=edges_normal, 
-                              edge_color='gray', width=2, 
+        # Aristas sin flujo (gris claro)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_sin_flujo, 
+                              edge_color='lightgray', width=1.5, 
+                              arrows=True, arrowsize=15, ax=ax, style='dashed')
+        
+        # Aristas con flujo parcial (azul)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_con_flujo, 
+                              edge_color='blue', width=2.5, 
                               arrows=True, arrowsize=20, ax=ax)
         
-        # Aristas del corte en rojo
+        # Aristas saturadas (verde oscuro)
+        nx.draw_networkx_edges(G, pos, edgelist=edges_saturadas, 
+                              edge_color='darkgreen', width=3, 
+                              arrows=True, arrowsize=20, ax=ax)
+        
+        # Aristas del corte en rojo (gruesas)
         nx.draw_networkx_edges(G, pos, edgelist=edges_corte, 
-                              edge_color='red', width=3, 
-                              arrows=True, arrowsize=20, ax=ax)
+                              edge_color='red', width=4, 
+                              arrows=True, arrowsize=25, ax=ax)
         
         # Etiquetas de nodos
         nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', ax=ax)
         
-        # Etiquetas de capacidades
-        edge_labels = nx.get_edge_attributes(G, 'capacity')
+        # Etiquetas de aristas mostrando flujo/capacidad
+        edge_labels = {}
+        for u, v in G.edges():
+            flujo_arista = flujos.get((u, v), 0)
+            cap_arista = grafo[u][v]
+            edge_labels[(u, v)] = f"{flujo_arista:.0f}/{cap_arista:.0f}"
+        
         nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=9, ax=ax)
         
-        ax.set_title(f"Flujo Máximo: {origen} → {destino}\n(Rojo = Corte mínimo)", 
+        # Calcular flujo total
+        flujo_total = sum(flujos.get((origen, v), 0) for v in grafo.get(origen, {}).keys())
+        
+        ax.set_title(f"Flujo Máximo: {flujo_total:.0f}\n{origen} → {destino} (Rojo = Corte mínimo)", 
                     fontsize=14, fontweight='bold')
         ax.axis('off')
         
-        # Leyenda
-        legend_text = f"Origen: {origen}\nDestino: {destino}\n"
-        legend_text += f"\nCaminos aumentantes: {len(caminos)}\n"
-        legend_text += f"\nAzul = Lado origen\nAmarillo = Lado destino"
+        # Leyenda mejorada
+        legend_text = f"🟢 Origen: {origen}\n🔴 Destino: {destino}\n"
+        legend_text += f"📊 Flujo máximo: {flujo_total:.0f}\n"
+        legend_text += f"🔵 Caminos aumentantes: {len(caminos)}\n\n"
+        legend_text += "Colores de aristas:\n"
+        legend_text += "• Rojo = Corte mínimo\n"
+        legend_text += "• Verde oscuro = Saturada\n"
+        legend_text += "• Azul = Con flujo parcial\n"
+        legend_text += "• Gris = Sin flujo"
         
         ax.text(0.02, 0.98, legend_text, transform=ax.transAxes,
                fontsize=9, verticalalignment='top',
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
         
         plt.tight_layout()
         
@@ -2188,7 +2647,7 @@ FORMATO DE ENTRADA:
   Ejemplo: "2 3 4 <= 10" significa 2x₁ + 3x₂ + 4x₃ ≤ 10
         """
         lbl_instr = ttk.Label(main_frame, text=instrucciones, justify='left', 
-                             font=('Courier', 9))
+                             font=('Consolas', 10))
         lbl_instr.pack(pady=5)
         
         # Frame de entrada
@@ -2220,8 +2679,8 @@ FORMATO DE ENTRADA:
         obj_frame.pack(fill='x', pady=10)
         
         ttk.Label(obj_frame, text="Coeficientes (separados por espacios):", 
-                 font=('Arial', 9)).pack(anchor='w')
-        self.txt_objetivo_pl = tk.Text(obj_frame, height=2, font=('Courier', 10))
+                 font=('Arial', 10)).pack(anchor='w')
+        self.txt_objetivo_pl = tk.Text(obj_frame, height=2, font=('Consolas', 11))
         self.txt_objetivo_pl.pack(fill='x', pady=5)
         self.txt_objetivo_pl.insert('1.0', "3 5")  # Ejemplo por defecto
         
@@ -2230,13 +2689,13 @@ FORMATO DE ENTRADA:
         rest_frame.pack(fill='both', expand=True, pady=10)
         
         ttk.Label(rest_frame, text="Una restricción por línea (formato: coef₁ coef₂ ... tipo valor):", 
-                 font=('Arial', 9)).pack(anchor='w')
+                 font=('Arial', 10)).pack(anchor='w')
         
         # Frame con scrollbar para restricciones
         scroll_rest = ttk.Scrollbar(rest_frame)
         scroll_rest.pack(side='right', fill='y')
         
-        self.txt_restricciones_pl = tk.Text(rest_frame, height=8, font=('Courier', 10),
+        self.txt_restricciones_pl = tk.Text(rest_frame, height=8, font=('Consolas', 11),
                                            yscrollcommand=scroll_rest.set)
         self.txt_restricciones_pl.pack(fill='both', expand=True)
         scroll_rest.config(command=self.txt_restricciones_pl.yview)
@@ -2281,7 +2740,7 @@ FORMATO DE ENTRADA:
         scroll_res = ttk.Scrollbar(resultado_frame)
         scroll_res.pack(side='right', fill='y')
         
-        self.txt_resultado_pl = tk.Text(resultado_frame, height=15, font=('Courier', 10),
+        self.txt_resultado_pl = tk.Text(resultado_frame, height=15, font=('Consolas', 11),
                                         yscrollcommand=scroll_res.set)
         self.txt_resultado_pl.pack(fill='both', expand=True)
         scroll_res.config(command=self.txt_resultado_pl.yview)
@@ -2422,6 +2881,33 @@ FORMATO DE ENTRADA:
             elif tipo_vars == "binarias":
                 self.txt_resultado_pl.insert('end', " (binarias: 0 o 1)")
             self.txt_resultado_pl.insert('end', "\n\n")
+            
+            # Mostrar proceso de solución
+            self.txt_resultado_pl.insert('end', "=" * 70 + "\n")
+            self.txt_resultado_pl.insert('end', "📊 PROCESO DE SOLUCIÓN\n")
+            self.txt_resultado_pl.insert('end', "=" * 70 + "\n\n")
+            
+            self.txt_resultado_pl.insert('end', "🔹 MÉTODO UTILIZADO:\n")
+            if tipo_vars == "continuas":
+                self.txt_resultado_pl.insert('end', "   • Algoritmo: Método Simplex Revisado (HiGHS)\n")
+                self.txt_resultado_pl.insert('end', "   • Tipo: Problema de programación lineal continua\n")
+            else:
+                self.txt_resultado_pl.insert('end', "   • Algoritmo: Branch & Bound con Simplex (HiGHS)\n")
+                self.txt_resultado_pl.insert('end', f"   • Tipo: Problema de programación lineal {tipo_vars}\n")
+            
+            self.txt_resultado_pl.insert('end', f"\n🔹 FORMULACIÓN ESTÁNDAR:\n")
+            self.txt_resultado_pl.insert('end', f"   • Variables: {num_vars}\n")
+            self.txt_resultado_pl.insert('end', f"   • Restricciones de desigualdad: {len(A_ub) if A_ub else 0}\n")
+            self.txt_resultado_pl.insert('end', f"   • Restricciones de igualdad: {len(A_eq) if A_eq else 0}\n")
+            self.txt_resultado_pl.insert('end', f"   • Variables de holgura agregadas: {len(A_ub) if A_ub else 0}\n\n")
+            
+            if resultado.success:
+                self.txt_resultado_pl.insert('end', "🔹 PROCESO SIMPLEX:\n")
+                self.txt_resultado_pl.insert('end', f"   ✓ Iteraciones realizadas: {resultado.nit if hasattr(resultado, 'nit') else 'N/A'}\n")
+                self.txt_resultado_pl.insert('end', f"   ✓ Estado: {resultado.message}\n")
+                if tipo_vars in ["enteras", "binarias"]:
+                    self.txt_resultado_pl.insert('end', "   ✓ Se aplicó ramificación y acotamiento (Branch & Bound)\n")
+                self.txt_resultado_pl.insert('end', "   ✓ Solución óptima encontrada\n\n")
             
             if resultado.success:
                 self.txt_resultado_pl.insert('end', "=" * 70 + "\n")
