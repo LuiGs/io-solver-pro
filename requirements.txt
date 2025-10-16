@@ -1,0 +1,6 @@
+numpy==1.24.3
+networkx==3.1
+matplotlib==3.7.1
+scipy==1.11.1
+pulp==2.7.0
+tkinter-tooltip==2.1.0
