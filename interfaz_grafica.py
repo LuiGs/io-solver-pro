@@ -1666,43 +1666,74 @@ D E 2"""
             for iter_data in iteraciones:
                 if iter_data['tipo'] == 'camino_encontrado':
                     self.txt_resultado_flujo.insert('end', 
-                        f"🔵 ITERACIÓN {iter_data['num']}:\n")
+                        f"🔵 RUTA DE AVANCE {iter_data['num']}:\n")
+                    self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
                     self.txt_resultado_flujo.insert('end', 
-                        f"   BFS desde {origen} → Nodos explorados: {', '.join(map(str, iter_data['nodos_explorados']))}\n")
-                    self.txt_resultado_flujo.insert('end', 
-                        f"   ✅ Camino aumentante encontrado: {' → '.join(map(str, iter_data['camino']))}\n\n")
+                        f"   Camino: {' → '.join(map(str, iter_data['camino']))}\n\n")
                     
-                    self.txt_resultado_flujo.insert('end', "   Capacidades residuales en el camino:\n")
+                    self.txt_resultado_flujo.insert('end', "   📐 Capacidades residuales en el camino:\n")
                     for u, v, cap in iter_data['aristas']:
                         self.txt_resultado_flujo.insert('end', 
-                            f"      {u} → {v}: {cap:.1f}\n")
+                            f"      c_{u}{v} = {cap:.0f}\n")
                     
                     self.txt_resultado_flujo.insert('end', 
-                        f"\n   🔹 Flujo del camino (cuello de botella): {iter_data['flujo_camino']:.1f}\n")
+                        f"\n   🔹 Flujo máximo en esta ruta:\n")
+                    self.txt_resultado_flujo.insert('end',
+                        f"      f_{iter_data['num']} = min{{{', '.join([f'{cap:.0f}' for u, v, cap in iter_data['aristas']])}}} = {iter_data['flujo_camino']:.0f}\n\n")
+                    
+                    # Mostrar actualización de residuos
+                    self.txt_resultado_flujo.insert('end', "   🔄 Actualización de capacidades residuales:\n")
+                    
+                    # Mostrar cambios en dirección del flujo (reducir)
+                    self.txt_resultado_flujo.insert('end', "      Dirección del flujo (reducir capacidad):\n")
+                    for u, v, cap_antes in iter_data['aristas']:
+                        cap_despues = cap_antes - iter_data['flujo_camino']
+                        self.txt_resultado_flujo.insert('end',
+                            f"         c_{u}{v} = {cap_antes:.0f} - {iter_data['flujo_camino']:.0f} = {cap_despues:.0f}\n")
+                    
+                    # Mostrar cambios en dirección inversa (incrementar)
+                    self.txt_resultado_flujo.insert('end', "\n      Dirección inversa (incrementar capacidad):\n")
+                    for i in range(len(iter_data['camino']) - 1):
+                        u, v = iter_data['camino'][i], iter_data['camino'][i + 1]
+                        # Obtener capacidad residual inversa antes
+                        cap_inversa_antes = iter_data['capacidades_residuales_antes'].get((v, u), 0)
+                        cap_inversa_despues = cap_inversa_antes + iter_data['flujo_camino']
+                        self.txt_resultado_flujo.insert('end',
+                            f"         c_{v}{u} = {cap_inversa_antes:.0f} + {iter_data['flujo_camino']:.0f} = {cap_inversa_despues:.0f}\n")
+                    
                     self.txt_resultado_flujo.insert('end', 
-                        f"   📈 Flujo acumulado: {iter_data['flujo_acumulado']:.1f}\n\n")
+                        f"\n   � Flujo acumulado hasta ahora: {iter_data['flujo_acumulado']:.0f}\n\n")
                     
                 elif iter_data['tipo'] == 'no_camino':
                     self.txt_resultado_flujo.insert('end', 
                         f"🔵 ITERACIÓN {iter_data['num']}:\n")
+                    self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
                     self.txt_resultado_flujo.insert('end', 
-                        f"   BFS desde {origen} → Nodos explorados: {', '.join(map(str, iter_data['nodos_explorados']))}\n")
-                    self.txt_resultado_flujo.insert('end', 
-                        f"   ❌ No se encontró camino aumentante\n")
+                        f"   ❌ No se encontró ruta de avance adicional\n")
                     self.txt_resultado_flujo.insert('end', 
                         f"   ✓ Algoritmo terminado\n\n")
             
             self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
-            self.txt_resultado_flujo.insert('end', "✅ RESUMEN DE CAMINOS AUMENTANTES\n")
+            self.txt_resultado_flujo.insert('end', "✅ RESUMEN DE RUTAS DE AVANCE\n")
             self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
             
             for i, (camino, flujo) in enumerate(caminos, 1):
                 self.txt_resultado_flujo.insert('end', 
-                    f"  {i}. {' → '.join(map(str, camino))}: flujo = {flujo}\n")
+                    f"  Ruta {i}: {' → '.join(map(str, camino))}\n")
+                self.txt_resultado_flujo.insert('end',
+                    f"          f_{i} = {flujo:.0f}\n\n")
             
-            self.txt_resultado_flujo.insert('end', f"\n{'='*60}\n")
-            self.txt_resultado_flujo.insert('end', f"FLUJO MÁXIMO: {flujo_maximo}\n")
-            self.txt_resultado_flujo.insert('end', f"{'='*60}\n")
+            # Mostrar cálculo del flujo máximo
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', "🎯 FLUJO MÁXIMO\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
+            
+            flujos_str = ' + '.join([f"f_{i}" for i in range(1, len(caminos) + 1)])
+            flujos_valores = ' + '.join([f"{flujo:.0f}" for _, flujo in caminos])
+            
+            self.txt_resultado_flujo.insert('end', f"  F = {flujos_str}\n")
+            self.txt_resultado_flujo.insert('end', f"  F = {flujos_valores}\n")
+            self.txt_resultado_flujo.insert('end', f"  F = {flujo_maximo:.0f}\n\n")
             
             # Calcular flujo real en cada arista
             flujos = {}
@@ -1718,27 +1749,30 @@ D E 2"""
                         flujos[(u, v)] += flujo
             
             # Mostrar tabla de flujos
-            self.txt_resultado_flujo.insert('end', "\n" + "=" * 60 + "\n")
-            self.txt_resultado_flujo.insert('end', "📋 TABLA DE FLUJOS POR ARISTA\n")
+            self.txt_resultado_flujo.insert('end', "=" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', "📋 FLUJO ÓPTIMO EN CADA ARCO\n")
             self.txt_resultado_flujo.insert('end', "=" * 60 + "\n\n")
-            self.txt_resultado_flujo.insert('end', "  Arista      Capacidad    Flujo    Residual\n")
+            self.txt_resultado_flujo.insert('end', "  Arco     Cap. Diseño  Cap. Residual  Flujo Óptimo\n")
+            self.txt_resultado_flujo.insert('end', "  (i,j)      (C̄ᵢⱼ)         (cᵢⱼ)           (α)\n")
             self.txt_resultado_flujo.insert('end', "-" * 60 + "\n")
             
             # Recopilar todas las aristas con capacidad
             todas_aristas = []
             for u in sorted(grafo.keys()):
                 for v in sorted(grafo[u].keys()):
-                    cap = grafo[u][v]
+                    cap_original = grafo[u][v]
                     flujo_usado = flujos.get((u, v), 0)
-                    residual = cap - flujo_usado
-                    todas_aristas.append((u, v, cap, flujo_usado, residual))
+                    residual = cap_original - flujo_usado
+                    todas_aristas.append((u, v, cap_original, residual, flujo_usado))
             
             # Mostrar tabla ordenada
-            for u, v, cap, flujo_usado, residual in todas_aristas:
+            for u, v, cap_original, residual, flujo_usado in todas_aristas:
                 self.txt_resultado_flujo.insert('end', 
-                    f"  {str(u):>3} → {str(v):<3}     {cap:>6.1f}      {flujo_usado:>6.1f}     {residual:>6.1f}\n")
+                    f"  ({u},{v})       {cap_original:>4.0f}           {residual:>4.0f}            {flujo_usado:>4.0f}\n")
             
             self.txt_resultado_flujo.insert('end', "-" * 60 + "\n")
+            self.txt_resultado_flujo.insert('end', f"\n💡 El flujo óptimo (α) es el flujo que circula por cada arco.\n")
+            self.txt_resultado_flujo.insert('end', f"   La capacidad residual (cᵢⱼ) es la capacidad restante después del flujo.\n\n")
             
             # Corte mínimo (visitados ya viene del algoritmo)
             corte = []
@@ -2374,7 +2408,8 @@ D E 2"""
             messagebox.showerror("Error", f"No se pudo visualizar: {str(e)}")
     
     def _ford_fulkerson(self, grafo, origen, destino):
-        """Implementación del algoritmo Ford-Fulkerson para flujo máximo con iteraciones"""
+        """Implementación del algoritmo Ford-Fulkerson para flujo máximo con iteraciones
+        Usa DFS con estrategia Greedy (prioriza arcos de mayor capacidad)"""
         from collections import defaultdict, deque
         
         # Crear grafo residual
@@ -2390,34 +2425,51 @@ D E 2"""
         # Lista para guardar iteraciones
         iteraciones = []
         
-        def bfs_camino_detallado(source, sink, num_iter):
-            """Busca un camino aumentante usando BFS y registra el proceso"""
-            visitado = {source}
-            cola = deque([(source, [source])])
+        def dfs_greedy_camino(source, sink, num_iter):
+            """Busca un camino aumentante usando DFS con estrategia Greedy
+            Prioriza los arcos de mayor capacidad primero"""
+            
             nodos_explorados = []
             
-            while cola:
-                nodo_actual, camino = cola.popleft()
-                nodos_explorados.append(nodo_actual)
+            def dfs_recursivo(current, visited, path):
+                """Búsqueda recursiva en profundidad con estrategia greedy"""
+                visited.add(current)
+                nodos_explorados.append(current)
                 
-                if nodo_actual == sink:
-                    return camino, nodos_explorados
+                # Si llegamos al sumidero, devolvemos el camino
+                if current == sink:
+                    return path + [sink]
                 
-                for vecino in residual[nodo_actual]:
-                    if vecino not in visitado and residual[nodo_actual][vecino] > 0:
-                        visitado.add(vecino)
-                        cola.append((vecino, camino + [vecino]))
+                # Encontrar vecinos no visitados con capacidad positiva
+                vecinos_validos = []
+                for vecino in residual[current]:
+                    if vecino not in visited and residual[current][vecino] > 0:
+                        capacidad = residual[current][vecino]
+                        vecinos_validos.append((vecino, capacidad))
+                
+                # Ordenar vecinos por capacidad descendente (estrategia Greedy)
+                vecinos_validos.sort(key=lambda x: x[1], reverse=True)
+                
+                # Intentar avanzar por el camino de mayor capacidad primero
+                for vecino, _ in vecinos_validos:
+                    camino_encontrado = dfs_recursivo(vecino, visited.copy(), path + [current])
+                    if camino_encontrado is not None:
+                        return camino_encontrado
+                
+                # Retroceso: ningún vecino lleva al sumidero
+                return None
             
-            return None, nodos_explorados
+            camino = dfs_recursivo(source, set(), [])
+            return camino, nodos_explorados
         
         flujo_total = 0
         caminos_encontrados = []
         num_iteracion = 0
         
-        # Encontrar caminos aumentantes
+        # Encontrar caminos aumentantes usando DFS Greedy
         while True:
             num_iteracion += 1
-            camino, nodos_explorados = bfs_camino_detallado(origen, destino, num_iteracion)
+            camino, nodos_explorados = dfs_greedy_camino(origen, destino, num_iteracion)
             
             if not camino:
                 # No hay más caminos aumentantes
