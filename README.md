@@ -209,34 +209,6 @@ print(f"Distancias: {distancias}")
 
 ---
 
-## 🎓 Casos de Uso
-
-### Para Estudiantes
-- ✅ Resolver tareas y ejercicios de IO
-- ✅ Verificar resultados manualmente calculados
-- ✅ Estudiar algoritmos con iteraciones paso a paso
-- ✅ Generar reportes con gráficos profesionales
-
-### Para Profesores
-- ✅ Demostrar algoritmos visualmente en clase
-- ✅ Generar ejercicios con diferentes ejemplos
-- ✅ Validar soluciones de estudiantes
-- ✅ Enseñar conceptos de optimización
-
-### Para Investigación
-- ✅ Prototipar problemas de optimización
-- ✅ Resolver casos reales rápidamente
-- ✅ Comparar diferentes algoritmos
-- ✅ Exportar resultados para publicaciones
-
----
-
-## 📝 Licencia
-
-MIT License - Uso libre con atribución. Ver [LICENSE](LICENSE) para más detalles.
-
----
-
 ## 🤝 Contribuciones
 
 Las contribuciones son bienvenidas. Para cambios importantes:
