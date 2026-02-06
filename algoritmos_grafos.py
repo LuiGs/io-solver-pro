@@ -280,7 +280,7 @@ class AlgoritmosGrafos:
         
         grafo: diccionario {nodo: {vecino: peso}}
         
-        Retorna: matriz de distancias, matriz de predecesores, lista de iteraciones
+        Retorna: matriz de distancias, matrices S (sucesores) y P (predecesores), lista de iteraciones
         """
         print("\n=== ALGORITMO DE FLOYD-WARSHALL ===\n")
         
@@ -288,21 +288,27 @@ class AlgoritmosGrafos:
         n = len(nodos)
         nodo_a_idx = {nodo: i for i, nodo in enumerate(nodos)}
         
-        # Inicializar matrices D (distancias) y P (predecesores)
+        # Inicializar matrices:
+        # D = Distancias
+        # S = Sucesores (siguiente nodo en el camino) - estilo profesor (columnas)
+        # P = Predecesores (nodo anterior en el camino) - estilo alternativo (filas)
         D = [[float('inf')] * n for _ in range(n)]
+        S = [[None] * n for _ in range(n)]  # Matriz de SUCESORES
         P = [[None] * n for _ in range(n)]  # Matriz de PREDECESORES
         
         # Lista para almacenar las iteraciones
         iteraciones = []
         
-        # Paso 1: Inicializar D y P
+        # Paso 1: Inicializar D, S y P
         # D[i][i] = 0 para todo i
         for i in range(n):
             D[i][i] = 0.0
+            S[i][i] = None  # No hay sucesor para ir de un nodo a sí mismo
             P[i][i] = None  # No hay predecesor para ir de un nodo a sí mismo
         
-        # D[i][j] = peso si existe arista i→j, infinito en caso contrario
-        # P[i][j] = i si existe arista directa i→j (el predecesor de j es i)
+        # Inicialización:
+        # S[i][j] = j (destino/columna) - el primer paso hacia j es j directamente
+        # P[i][j] = i (origen/fila) - el paso previo a j viniendo de i es i
         for i in range(n):
             for j in range(n):
                 if i != j:
@@ -310,9 +316,11 @@ class AlgoritmosGrafos:
                     nodo_j = nodos[j]
                     if nodo_i in grafo and nodo_j in grafo[nodo_i]:
                         D[i][j] = grafo[nodo_i][nodo_j]
-                        P[i][j] = nodo_i  # El predecesor de j en i→j es i
+                        S[i][j] = nodo_j  # Sucesor: siguiente nodo es j (columna)
+                        P[i][j] = nodo_i  # Predecesor: nodo anterior es i (fila)
                     else:
                         D[i][j] = float('inf')
+                        S[i][j] = nodo_j  # Inicializar con destino (estilo profesor)
                         P[i][j] = nodo_i  # Inicializar con origen (estándar TORA)
         
         print("Matriz de distancias inicial:")
@@ -323,7 +331,8 @@ class AlgoritmosGrafos:
             'k': 0,
             'nodo_intermedio': 'Inicial',
             'matriz_d': [row[:] for row in D],
-            'matriz_s': [row[:] for row in P],  # Ahora es matriz de predecesores
+            'matriz_s': [row[:] for row in S],  # Matriz de sucesores
+            'matriz_p': [row[:] for row in P],  # Matriz de predecesores
             'cambios': []
         })
         
@@ -342,7 +351,8 @@ class AlgoritmosGrafos:
                         if nueva_dist < D[i][j]:
                             dist_anterior = D[i][j]
                             D[i][j] = nueva_dist
-                            P[i][j] = P[k][j]  # El predecesor de j en i→j es el mismo que k→j
+                            S[i][j] = S[i][k]  # El sucesor de i hacia j es el mismo que i hacia k
+                            P[i][j] = P[k][j]  # El predecesor de j desde i es el mismo que desde k
                             cambios.append({
                                 'origen': nodos[i],
                                 'destino': nodos[j],
@@ -358,7 +368,8 @@ class AlgoritmosGrafos:
                 'k': k + 1,
                 'nodo_intermedio': nodos[k],
                 'matriz_d': [row[:] for row in D],
-                'matriz_s': [row[:] for row in P],  # Ahora es matriz de predecesores
+                'matriz_s': [row[:] for row in S],  # Matriz de sucesores
+                'matriz_p': [row[:] for row in P],  # Matriz de predecesores
                 'cambios': cambios
             })
         
@@ -373,10 +384,10 @@ class AlgoritmosGrafos:
         for i, origen in enumerate(nodos):
             for j, destino in enumerate(nodos):
                 if i != j and D[i][j] != float('inf'):
-                    camino = AlgoritmosGrafos._reconstruir_camino_fw_predecesores(P, nodo_a_idx, origen, destino, nodos)
+                    camino = AlgoritmosGrafos._reconstruir_camino_fw_sucesores(S, nodo_a_idx, origen, destino, nodos)
                     print(f"  {origen} → {destino}: {D[i][j]} | Camino: {' → '.join(map(str, camino))}")
         
-        return D, P, nodos, nodo_a_idx, iteraciones
+        return D, S, P, nodos, nodo_a_idx, iteraciones
     
     @staticmethod
     def _imprimir_matriz(matriz, nodos):
@@ -402,7 +413,7 @@ class AlgoritmosGrafos:
     
     @staticmethod
     def _reconstruir_camino_fw(next_node, nodo_a_idx, origen, destino, nodos):
-        """Reconstruye el camino en Floyd-Warshall usando matriz de sucesores"""
+        """Reconstruye el camino en Floyd-Warshall usando matriz de sucesores (legacy)"""
         i = nodo_a_idx[origen]
         j = nodo_a_idx[destino]
         
@@ -416,6 +427,33 @@ class AlgoritmosGrafos:
         
         return camino
     
+    @staticmethod
+    def _reconstruir_camino_fw_sucesores(sucesor, nodo_a_idx, origen, destino, nodos):
+        """Reconstruye el camino en Floyd-Warshall usando matriz de sucesores S"""
+        i = nodo_a_idx[origen]
+        j = nodo_a_idx[destino]
+        
+        if sucesor[i][j] is None:
+            return []
+        
+        camino = [origen]
+        actual = origen
+        max_iter = len(nodos) + 1  # Prevenir ciclos infinitos
+        
+        while actual != destino and max_iter > 0:
+            idx_actual = nodo_a_idx[actual]
+            idx_destino = nodo_a_idx[destino]
+            siguiente = sucesor[idx_actual][idx_destino]
+            
+            if siguiente is None or siguiente == actual:
+                break
+                
+            camino.append(siguiente)
+            actual = siguiente
+            max_iter -= 1
+        
+        return camino
+
     @staticmethod
     def _reconstruir_camino_fw_predecesores(pred, nodo_a_idx, origen, destino, nodos):
         """Reconstruye el camino en Floyd-Warshall usando matriz de predecesores"""

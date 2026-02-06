@@ -586,6 +586,60 @@ class AplicacionGrafos:
         self.txt_resultado_juego = scrolledtext.ScrolledText(frame_der, height=20, width=60, font=('Consolas', 11))
         self.txt_resultado_juego.pack(fill='both', expand=True)
     
+    def _calcular_tamano_nodos(self, n_nodos):
+        """
+        Calcula el tamaño óptimo de nodos según la cantidad.
+        Escala dinámicamente para evitar solapamiento en grafos grandes.
+        """
+        if n_nodos <= 5:
+            return 900
+        elif n_nodos <= 10:
+            return 700
+        elif n_nodos <= 15:
+            return 550
+        elif n_nodos <= 20:
+            return 450
+        else:
+            return max(300, 900 - n_nodos * 25)
+    
+    def _calcular_tamano_fuente(self, n_nodos):
+        """
+        Calcula el tamaño óptimo de fuente según la cantidad de nodos.
+        """
+        if n_nodos <= 5:
+            return 12
+        elif n_nodos <= 10:
+            return 11
+        elif n_nodos <= 15:
+            return 10
+        else:
+            return max(8, 12 - n_nodos // 5)
+    
+    def _guardar_figura(self, fig, ventana, nombre_default="grafo"):
+        """
+        Guarda la figura actual como imagen PNG o SVG.
+        """
+        from tkinter import filedialog
+        archivo = filedialog.asksaveasfilename(
+            parent=ventana,
+            defaultextension=".png",
+            filetypes=[
+                ("PNG Image", "*.png"),
+                ("SVG Vector", "*.svg"),
+                ("PDF Document", "*.pdf"),
+                ("All files", "*.*")
+            ],
+            initialfile=nombre_default,
+            title="Guardar gráfico como imagen"
+        )
+        if archivo:
+            try:
+                fig.savefig(archivo, dpi=150, bbox_inches='tight', 
+                           facecolor='white', edgecolor='none')
+                messagebox.showinfo("Éxito", f"Imagen guardada en:\n{archivo}")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo guardar: {str(e)}")
+    
     def _calcular_layout_inteligente(self, G, seed=None):
         """
         Calcula el mejor layout para visualizar el grafo según sus características.
@@ -1088,7 +1142,7 @@ D E 2"""
             messagebox.showerror("Error", f"Error al ejecutar {algoritmo}: {str(e)}")
     
     def visualizar_mst(self, grafo, mst, titulo):
-        """Visualiza el árbol de expansión mínima"""
+        """Visualiza el árbol de expansión mínima con mejoras visuales"""
         G = nx.Graph()
         
         # Agregar todas las aristas
@@ -1099,45 +1153,91 @@ D E 2"""
         
         # Marcar aristas del MST
         for u, v, peso in mst:
-            G[u][v]['in_mst'] = True
+            if G.has_edge(u, v):
+                G[u][v]['in_mst'] = True
+            elif G.has_edge(v, u):
+                G[v][u]['in_mst'] = True
+        
+        # Calcular tamaños dinámicos
+        n_nodos = G.number_of_nodes()
+        node_size = self._calcular_tamano_nodos(n_nodos)
+        font_size = self._calcular_tamano_fuente(n_nodos)
+        font_size_edges = max(7, font_size - 2)
         
         # Crear figura
-        fig = plt.Figure(figsize=(10, 6))
+        fig = plt.Figure(figsize=(12, 8))
         ax = fig.add_subplot(111)
         
         # Usar layout inteligente
         pos = self._calcular_layout_inteligente(G)
         
-        # Dibujar aristas no MST
-        aristas_no_mst = [(u, v) for u, v, d in G.edges(data=True) if not d['in_mst']]
+        # Dibujar aristas no MST (gris, discontinuas)
+        aristas_no_mst = [(u, v) for u, v, d in G.edges(data=True) if not d.get('in_mst', False)]
         nx.draw_networkx_edges(G, pos, edgelist=aristas_no_mst, 
-                              width=1, alpha=0.3, edge_color='gray', ax=ax)
+                              width=1.5, alpha=0.4, edge_color='#95A5A6', 
+                              style='dashed', ax=ax)
         
-        # Dibujar aristas MST
-        aristas_mst = [(u, v) for u, v, d in G.edges(data=True) if d['in_mst']]
+        # Dibujar aristas MST (rojo, sólidas y gruesas)
+        aristas_mst = [(u, v) for u, v, d in G.edges(data=True) if d.get('in_mst', False)]
         nx.draw_networkx_edges(G, pos, edgelist=aristas_mst, 
-                              width=3, alpha=1, edge_color='red', ax=ax)
+                              width=3.5, alpha=1, edge_color='#E74C3C', ax=ax)
         
-        # Dibujar nodos
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
-                              node_size=800, ax=ax)
-        nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', ax=ax)
+        # Dibujar nodos con borde
+        nx.draw_networkx_nodes(G, pos, node_color='#AED6F1', 
+                              node_size=node_size, ax=ax,
+                              edgecolors='#2980B9', linewidths=2)
+        nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight='bold', ax=ax)
         
-        # Etiquetas de pesos
+        # Etiquetas de pesos con fondo blanco para legibilidad
         edge_labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=9, ax=ax)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=font_size_edges, ax=ax,
+                                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                                             edgecolor='none', alpha=0.8))
         
-        ax.set_title(titulo, fontsize=14, fontweight='bold')
+        # Calcular peso total del MST
+        peso_total = sum(peso for u, v, peso in mst)
+        
+        ax.set_title(titulo, fontsize=14, fontweight='bold', pad=15)
         ax.axis('off')
+        
+        # Agregar leyenda
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+        leyenda_elementos = [
+            Line2D([0], [0], color='#E74C3C', linewidth=3.5, label=f'Aristas del MST (peso total: {peso_total})'),
+            Line2D([0], [0], color='#95A5A6', linewidth=1.5, linestyle='--', label='Aristas descartadas'),
+            Patch(facecolor='#AED6F1', edgecolor='#2980B9', linewidth=2, label=f'Nodos ({n_nodos} total)')
+        ]
+        ax.legend(handles=leyenda_elementos, loc='upper left', fontsize=9, 
+                 framealpha=0.9, fancybox=True)
+        
+        fig.tight_layout()
         
         # Mostrar en ventana nueva
         ventana = tk.Toplevel(self.root)
         ventana.title(titulo)
-        ventana.geometry("1000x700")
+        ventana.geometry("1100x750")
+        
+        # Frame para botones en la parte inferior
+        frame_botones_mst = ttk.Frame(ventana)
+        frame_botones_mst.pack(side='bottom', fill='x', padx=10, pady=5)
+        
+        ttk.Label(frame_botones_mst, text="🛠️ Opciones:").pack(side='left', padx=5)
+        ttk.Button(frame_botones_mst, text="🔄 Regenerar Layout", 
+                  command=lambda: self._regenerar_mst(ventana, grafo, mst, titulo)).pack(side='left', padx=5)
+        ttk.Button(frame_botones_mst, text="💾 Guardar Imagen", 
+                  command=lambda: self._guardar_figura(fig, ventana, "mst_grafo")).pack(side='left', padx=5)
         
         canvas = FigureCanvasTkAgg(fig, master=ventana)
         canvas.draw()
         canvas.get_tk_widget().pack(fill='both', expand=True)
+    
+    def _regenerar_mst(self, ventana, grafo, mst, titulo):
+        """Regenera la visualización de MST con un layout diferente"""
+        ventana.destroy()
+        import time
+        time.sleep(0.1)
+        self.visualizar_mst(grafo, mst, titulo)
     
     def ejecutar_dijkstra(self):
         """Ejecuta el algoritmo de Dijkstra"""
@@ -1333,7 +1433,7 @@ D E 2"""
             self.txt_resultado_fw.insert('end', f"ALGORITMO DE FLOYD-WARSHALL ({tipo_grafo})\n")
             self.txt_resultado_fw.insert('end', "=" * 60 + "\n\n")
             
-            dist, next_node, nodos_lista, nodo_a_idx, iteraciones = AlgoritmosGrafos.floyd_warshall(grafo)
+            dist, sucesor, predecesor, nodos_lista, nodo_a_idx, iteraciones = AlgoritmosGrafos.floyd_warshall(grafo)
             
             # Mostrar iteraciones paso a paso con AMBAS MATRICES (D y S)
             self.txt_resultado_fw.insert('end', "📊 ITERACIONES PASO A PASO:\n")
@@ -1384,8 +1484,8 @@ D E 2"""
                             self.txt_resultado_fw.insert('end', f"{val:>6.1f}")
                     self.txt_resultado_fw.insert('end', "\n")
                 
-                # Mostrar MATRIZ S (Predecesores)
-                self.txt_resultado_fw.insert('end', "\n   🧭 MATRIZ S (Predecesores):\n")
+                # Mostrar MATRIZ S (Sucesores) - Estilo Profesor
+                self.txt_resultado_fw.insert('end', "\n   🧭 MATRIZ S (Sucesores - siguiente nodo):\n")
                 self.txt_resultado_fw.insert('end', "      ")
                 for nodo in nodos_lista:
                     self.txt_resultado_fw.insert('end', f"{str(nodo):>6}")
@@ -1395,6 +1495,23 @@ D E 2"""
                     self.txt_resultado_fw.insert('end', f"   {str(nodo):>4}: ")
                     for j in range(n):
                         val = iter_data['matriz_s'][i][j]
+                        if val is None:
+                            self.txt_resultado_fw.insert('end', "   -  ")
+                        else:
+                            self.txt_resultado_fw.insert('end', f"{str(val):>6}")
+                    self.txt_resultado_fw.insert('end', "\n")
+                
+                # Mostrar MATRIZ P (Predecesores)
+                self.txt_resultado_fw.insert('end', "\n   📍 MATRIZ P (Predecesores - nodo anterior):\n")
+                self.txt_resultado_fw.insert('end', "      ")
+                for nodo in nodos_lista:
+                    self.txt_resultado_fw.insert('end', f"{str(nodo):>6}")
+                self.txt_resultado_fw.insert('end', "\n")
+                
+                for i, nodo in enumerate(nodos_lista):
+                    self.txt_resultado_fw.insert('end', f"   {str(nodo):>4}: ")
+                    for j in range(n):
+                        val = iter_data['matriz_p'][i][j]
                         if val is None:
                             self.txt_resultado_fw.insert('end', "   -  ")
                         else:
@@ -1426,7 +1543,8 @@ D E 2"""
             
             # Guardar resultados para consultas posteriores
             self.floyd_dist = dist
-            self.floyd_next = next_node
+            self.floyd_next = sucesor  # Matriz de sucesores para reconstruir caminos
+            self.floyd_pred = predecesor  # Matriz de predecesores (alternativa)
             self.floyd_nodos = nodos_lista
             self.floyd_nodo_a_idx = nodo_a_idx
             
@@ -1559,7 +1677,7 @@ D E 2"""
             messagebox.showerror("Error", f"Error al consultar ruta: {str(e)}")
     
     def _reconstruir_camino_floyd(self, origen, destino):
-        """Reconstruye el camino entre origen y destino usando la matriz de predecesores"""
+        """Reconstruye el camino entre origen y destino usando la matriz de sucesores"""
         if origen == destino:
             return [origen]
         
@@ -1569,20 +1687,20 @@ D E 2"""
         if self.floyd_next[i][j] is None:
             return []
         
-        # Reconstruir desde el destino hacia el origen usando predecesores
-        camino = [destino]
-        actual = destino
+        # Reconstruir usando sucesores (siguiente nodo en el camino)
+        camino = [origen]
+        actual = origen
         
-        while actual != origen:
+        while actual != destino:
             idx_actual = self.floyd_nodo_a_idx[actual]
-            idx_origen = self.floyd_nodo_a_idx[origen]
-            predecesor = self.floyd_next[idx_origen][idx_actual]
+            idx_destino = self.floyd_nodo_a_idx[destino]
+            siguiente = self.floyd_next[idx_actual][idx_destino]
             
-            if predecesor is None or predecesor == actual:
+            if siguiente is None or siguiente == actual:
                 return []
             
-            camino.insert(0, predecesor)
-            actual = predecesor
+            camino.append(siguiente)
+            actual = siguiente
             
             # Protección contra bucles infinitos
             if len(camino) > len(self.floyd_nodos):
@@ -1978,11 +2096,11 @@ D E 2"""
             messagebox.showerror("Error", f"Error al resolver el juego: {str(e)}")
     
     def _visualizar_dijkstra(self, grafo, origen, distancias, predecesores):
-        """Visualiza el grafo completo y el Shortest Path Tree (SPT)"""
+        """Visualiza el grafo completo y el Shortest Path Tree (SPT) con mejoras visuales"""
         # Crear nueva ventana
         ventana = tk.Toplevel(self.root)
         ventana.title(f"Dijkstra - Rutas más cortas desde {origen}")
-        ventana.geometry("1400x700")
+        ventana.geometry("1500x800")
         
         # Detectar si el grafo es dirigido
         es_dirigido = self.var_dirigido_dijkstra.get()
@@ -1997,8 +2115,15 @@ D E 2"""
             for v, peso in grafo[u].items():
                 G.add_edge(u, v, weight=peso)
         
+        # Calcular tamaños dinámicos
+        n_nodos = G.number_of_nodes()
+        node_size = self._calcular_tamano_nodos(n_nodos)
+        font_size = self._calcular_tamano_fuente(n_nodos)
+        font_size_edges = max(7, font_size - 2)
+        arrow_size = max(15, 25 - n_nodos)
+        
         # Crear figura con 2 subplots
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
         
         # Layout inteligente (compartido entre ambas visualizaciones)
         pos = self._calcular_layout_inteligente(G)
@@ -2014,7 +2139,7 @@ D E 2"""
                 pred = predecesores[nodo]
                 spt_edges.append((pred, nodo))
         
-        # Dibujar todos los nodos
+        # Dibujar todos los nodos con colores semánticos
         node_colors = []
         for node in G.nodes():
             if node == origen:
@@ -2025,14 +2150,15 @@ D E 2"""
                 node_colors.append('#3498DB')  # Azul para alcanzables
         
         nx.draw_networkx_nodes(G, pos, node_color=node_colors, 
-                              node_size=800, ax=ax1)
+                              node_size=node_size, ax=ax1,
+                              edgecolors='#2C3E50', linewidths=2)
         
         # Separar aristas
         edges_spt = []
         edges_other = []
         
         for u, v in G.edges():
-            if (u, v) in spt_edges or (v, u) in spt_edges:
+            if (u, v) in spt_edges or (not es_dirigido and (v, u) in spt_edges):
                 edges_spt.append((u, v))
             else:
                 edges_other.append((u, v))
@@ -2041,34 +2167,50 @@ D E 2"""
         if es_dirigido:
             if edges_other:
                 nx.draw_networkx_edges(G, pos, edgelist=edges_other, 
-                                      edge_color='#BDC3C7', width=1, 
-                                      arrows=True, arrowsize=15, 
-                                      style='dashed', ax=ax1)
+                                      edge_color='#BDC3C7', width=1.5, 
+                                      arrows=True, arrowsize=arrow_size, 
+                                      style='dashed', ax=ax1,
+                                      min_source_margin=15, min_target_margin=15)
             # Dibujar aristas del SPT
             if edges_spt:
                 nx.draw_networkx_edges(G, pos, edgelist=edges_spt, 
-                                      edge_color='#E74C3C', width=3,
-                                      arrows=True, arrowsize=20, ax=ax1)
+                                      edge_color='#E74C3C', width=3.5,
+                                      arrows=True, arrowsize=arrow_size + 5, ax=ax1,
+                                      min_source_margin=15, min_target_margin=15)
         else:
             if edges_other:
                 nx.draw_networkx_edges(G, pos, edgelist=edges_other, 
-                                      edge_color='#BDC3C7', width=1,
+                                      edge_color='#BDC3C7', width=1.5,
                                       style='dashed', ax=ax1)
             # Dibujar aristas del SPT
             if edges_spt:
                 nx.draw_networkx_edges(G, pos, edgelist=edges_spt, 
-                                      edge_color='#E74C3C', width=3, ax=ax1)
+                                      edge_color='#E74C3C', width=3.5, ax=ax1)
         
         # Etiquetas de nodos
-        nx.draw_networkx_labels(G, pos, font_size=11, font_weight='bold', ax=ax1)
+        nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight='bold', ax=ax1)
         
-        # Etiquetas de pesos
+        # Etiquetas de pesos con fondo
         edge_labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=8, ax=ax1)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=font_size_edges, ax=ax1,
+                                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                                             edgecolor='none', alpha=0.85))
         
         ax1.set_title(f"Grafo Completo\n(Aristas del SPT en rojo)", 
                      fontsize=14, fontweight='bold', pad=20)
         ax1.axis('off')
+        
+        # Leyenda para subplot 1
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+        leyenda1 = [
+            Patch(facecolor='#27AE60', edgecolor='#2C3E50', label=f'Origen: {origen}'),
+            Patch(facecolor='#3498DB', edgecolor='#2C3E50', label='Nodos alcanzables'),
+            Patch(facecolor='#95A5A6', edgecolor='#2C3E50', label='Nodos inalcanzables'),
+            Line2D([0], [0], color='#E74C3C', linewidth=3.5, label='Aristas del SPT'),
+            Line2D([0], [0], color='#BDC3C7', linewidth=1.5, linestyle='--', label='Otras aristas')
+        ]
+        ax1.legend(handles=leyenda1, loc='upper left', fontsize=8, framealpha=0.9)
         
         # ============================================
         # SUBPLOT 2: Solo el Shortest Path Tree (SPT)
@@ -2099,63 +2241,70 @@ D E 2"""
                 node_colors_spt.append('#3498DB')  # Azul para otros
         
         nx.draw_networkx_nodes(SPT, pos, node_color=node_colors_spt, 
-                              node_size=800, ax=ax2)
+                              node_size=node_size, ax=ax2,
+                              edgecolors='#2C3E50', linewidths=2)
         
-        # Dibujar aristas del SPT
+        # Dibujar aristas del SPT con flechas más visibles
         if es_dirigido:
             nx.draw_networkx_edges(SPT, pos, edge_color='#E74C3C', 
-                                  width=3, arrows=True, arrowsize=20, ax=ax2)
+                                  width=3.5, arrows=True, arrowsize=arrow_size + 5, ax=ax2,
+                                  min_source_margin=15, min_target_margin=15)
         else:
             nx.draw_networkx_edges(SPT, pos, edge_color='#E74C3C', 
-                                  width=3, ax=ax2)
+                                  width=3.5, ax=ax2)
         
         # Etiquetas de nodos
-        nx.draw_networkx_labels(SPT, pos, font_size=11, font_weight='bold', ax=ax2)
+        nx.draw_networkx_labels(SPT, pos, font_size=font_size, font_weight='bold', ax=ax2)
         
-        # Etiquetas de pesos (solo aristas del SPT)
+        # Etiquetas de pesos (solo aristas del SPT) con fondo
         spt_edge_labels = nx.get_edge_attributes(SPT, 'weight')
-        nx.draw_networkx_edge_labels(SPT, pos, spt_edge_labels, font_size=8, ax=ax2)
+        nx.draw_networkx_edge_labels(SPT, pos, spt_edge_labels, font_size=font_size_edges, ax=ax2,
+                                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                                             edgecolor='none', alpha=0.85))
         
         # Calcular peso total del SPT
         peso_total_spt = sum(grafo[pred][nodo] for pred, nodo in spt_edges)
         
         # Agregar información sobre distancias y peso total
-        info_text = f"Nodo origen: {origen}\n"
-        info_text += f"Nodos alcanzables: {len(SPT.nodes()) - 1}\n"
-        info_text += f"Aristas en SPT: {len(spt_edges)}\n"
-        info_text += f"{'─' * 20}\n"
-        info_text += f"💰 Peso Total SPT: {peso_total_spt:.1f}\n"
-        info_text += f"{'─' * 20}\n\n"
+        info_text = f"[o] Nodo origen: {origen}\n"
+        info_text += f"[+] Nodos alcanzables: {len(SPT.nodes()) - 1}\n"
+        info_text += f"[-] Aristas en SPT: {len(spt_edges)}\n"
+        info_text += f"{'─' * 22}\n"
+        info_text += f"[$] Peso Total SPT: {peso_total_spt:.1f}\n"
+        info_text += f"{'─' * 22}\n\n"
         info_text += "Distancias desde origen:\n"
-        for nodo in sorted(SPT.nodes()):
+        for nodo in sorted(SPT.nodes(), key=str):
             if nodo != origen:
                 dist = distancias.get(nodo, float('inf'))
-                info_text += f"{origen}→{nodo}: {dist:.1f}\n"
+                info_text += f"  {origen}→{nodo}: {dist:.1f}\n"
         
         ax2.text(0.02, 0.98, info_text, transform=ax2.transAxes,
-                fontsize=9, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+                fontsize=9, verticalalignment='top', family='monospace',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='#FEF9E7', 
+                         edgecolor='#F39C12', alpha=0.95))
         
         ax2.set_title(f"Shortest Path Tree (SPT)\n(Solo aristas del árbol)", 
                      fontsize=14, fontweight='bold', pad=20)
         ax2.axis('off')
         
-        plt.tight_layout()
+        fig.tight_layout()
         
         # Frame para botones
         frame_botones = ttk.Frame(ventana)
-        frame_botones.pack(side='bottom', fill='x', padx=5, pady=5)
+        frame_botones.pack(side='bottom', fill='x', padx=10, pady=5)
         
-        ttk.Label(frame_botones, text="💡 Si los nodos se superponen:").pack(side='left', padx=5)
+        ttk.Label(frame_botones, text="🛠️ Opciones:").pack(side='left', padx=5)
         ttk.Button(frame_botones, text="🔄 Regenerar Layout", 
                   command=lambda: self._regenerar_dijkstra(ventana, grafo, origen, distancias, predecesores)).pack(side='left', padx=5)
+        ttk.Button(frame_botones, text="💾 Guardar Imagen", 
+                  command=lambda: self._guardar_figura(fig, ventana, f"dijkstra_{origen}")).pack(side='left', padx=5)
         
         # Mostrar en ventana
         canvas = FigureCanvasTkAgg(fig, master=ventana)
         canvas.draw()
         canvas.get_tk_widget().pack(fill='both', expand=True)
         
-        self.status_bar.config(text="✅ Visualización de Dijkstra creada")
+        self._actualizar_status("Visualización de Dijkstra creada", "success")
     
     def _regenerar_dijkstra(self, ventana, grafo, origen, distancias, predecesores):
         """Regenera la visualización de Dijkstra con un layout diferente"""
@@ -2165,11 +2314,11 @@ D E 2"""
         self._visualizar_dijkstra(grafo, origen, distancias, predecesores)
     
     def _visualizar_floyd_warshall(self, grafo, dist, nodos_lista):
-        """Visualiza el grafo con todas las distancias mínimas"""
+        """Visualiza el grafo con todas las distancias mínimas - Versión mejorada"""
         # Crear nueva ventana
         ventana = tk.Toplevel(self.root)
         ventana.title("Floyd-Warshall - Todas las distancias")
-        ventana.geometry("900x700")
+        ventana.geometry("1100x800")
         
         # Crear grafo de NetworkX (dirigido)
         G = nx.DiGraph()
@@ -2177,15 +2326,23 @@ D E 2"""
             for v, peso in grafo[u].items():
                 G.add_edge(u, v, weight=peso)
         
+        # Calcular tamaños dinámicos
+        n_nodos = G.number_of_nodes()
+        node_size = self._calcular_tamano_nodos(n_nodos)
+        font_size = self._calcular_tamano_fuente(n_nodos)
+        font_size_edges = max(7, font_size - 2)
+        arrow_size = max(15, 25 - n_nodos)
+        
         # Crear figura
-        fig, ax = plt.subplots(figsize=(10, 8))
+        fig, ax = plt.subplots(figsize=(12, 9))
         
         # Layout inteligente
         pos = self._calcular_layout_inteligente(G)
         
-        # Dibujar nodos
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
-                              node_size=800, ax=ax)
+        # Dibujar nodos con borde
+        nx.draw_networkx_nodes(G, pos, node_color='#AED6F1', 
+                              node_size=node_size, ax=ax,
+                              edgecolors='#2980B9', linewidths=2)
         
         # Detectar aristas bidireccionales (con posibles pesos diferentes)
         aristas_bidireccionales = set()
@@ -2204,9 +2361,10 @@ D E 2"""
         # Dibujar aristas simples (unidireccionales) rectas
         if aristas_simples:
             nx.draw_networkx_edges(G, pos, edgelist=aristas_simples,
-                                  edge_color='gray', width=2, 
-                                  arrows=True, arrowsize=20,
-                                  connectionstyle='arc3,rad=0', ax=ax)
+                                  edge_color='#7F8C8D', width=2.5, 
+                                  arrows=True, arrowsize=arrow_size,
+                                  connectionstyle='arc3,rad=0', ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
         
         # Dibujar aristas bidireccionales con curvas para evitar superposición
         if aristas_bidireccionales:
@@ -2214,76 +2372,117 @@ D E 2"""
             aristas_ida = list(aristas_bidireccionales)
             aristas_vuelta = [(v, u) for u, v in aristas_bidireccionales]
             
-            # Dibujar con diferentes curvaturas
+            # Dibujar con diferentes curvaturas y colores
             nx.draw_networkx_edges(G, pos, edgelist=aristas_ida,
                                   edge_color='#3498DB', width=2.5, 
-                                  arrows=True, arrowsize=20,
-                                  connectionstyle='arc3,rad=0.2', ax=ax)
+                                  arrows=True, arrowsize=arrow_size,
+                                  connectionstyle='arc3,rad=0.15', ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
             
             nx.draw_networkx_edges(G, pos, edgelist=aristas_vuelta,
                                   edge_color='#E74C3C', width=2.5, 
-                                  arrows=True, arrowsize=20,
-                                  connectionstyle='arc3,rad=0.2', ax=ax)
+                                  arrows=True, arrowsize=arrow_size,
+                                  connectionstyle='arc3,rad=0.15', ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
         
         # Etiquetas de nodos
-        nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', ax=ax)
+        nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight='bold', ax=ax)
         
-        # Etiquetas de pesos (mejoradas para aristas curvas)
-        edge_labels = {}
+        # Para aristas curvas, dibujar etiquetas manualmente en la posición correcta
         for u in grafo:
             for v, peso in grafo[u].items():
+                # Calcular posición de la etiqueta
+                x1, y1 = pos[u]
+                x2, y2 = pos[v]
+                
+                # Si es bidireccional, desplazar la etiqueta hacia el lado curvo
                 if (u, v) in aristas_bidireccionales or (v, u) in aristas_bidireccionales:
-                    # Para aristas bidireccionales, mostrar ambos pesos
-                    edge_labels[(u, v)] = f"{peso}"
+                    # Punto medio
+                    mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+                    # Vector perpendicular para el desplazamiento
+                    dx, dy = x2 - x1, y2 - y1
+                    length = (dx**2 + dy**2)**0.5
+                    if length > 0:
+                        # Normalizar y desplazar perpendicularmente
+                        perpx, perpy = -dy / length, dx / length
+                        offset = 0.08  # Desplazamiento
+                        
+                        # Determinar el lado según la dirección
+                        if (u, v) in aristas_bidireccionales:
+                            label_x = mx + perpx * offset
+                            label_y = my + perpy * offset
+                        else:
+                            label_x = mx - perpx * offset
+                            label_y = my - perpy * offset
+                        
+                        ax.text(label_x, label_y, f"{peso}", fontsize=font_size_edges,
+                               ha='center', va='center',
+                               bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                                        edgecolor='none', alpha=0.9))
                 else:
-                    edge_labels[(u, v)] = f"{peso}"
-        
-        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=9, ax=ax)
+                    # Arista simple, etiqueta en el medio
+                    mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+                    ax.text(mx, my, f"{peso}", fontsize=font_size_edges,
+                           ha='center', va='center',
+                           bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                                    edgecolor='none', alpha=0.9))
         
         # Determinar tipo de grafo para el título
         es_dirigido = self.var_dirigido_floyd.get()
         tipo_grafo = "Dirigido" if es_dirigido else "No Dirigido"
         ax.set_title(f"Floyd-Warshall - Grafo {tipo_grafo}\n(Ver matriz en resultados)", 
-                    fontsize=14, fontweight='bold')
+                    fontsize=14, fontweight='bold', pad=15)
         ax.axis('off')
         
         # Agregar información de distancias más cortas
         n = len(nodos_lista)
-        info_text = "Distancias calculadas:\n"
+        info_text = "[*] Resumen del Grafo:\n"
+        info_text += f"{'─' * 22}\n"
         info_text += f"Nodos: {', '.join(map(str, nodos_lista))}\n"
+        info_text += f"Total de nodos: {n}\n"
         info_text += f"Total de pares: {n * n}\n"
         
         # Contar caminos finitos
         finitos = sum(1 for i in range(n) for j in range(n) 
                      if dist[i][j] != float('inf') and i != j)
-        info_text += f"Caminos encontrados: {finitos}"
+        info_text += f"Caminos encontrados: {finitos}\n"
+        info_text += f"{'─' * 22}\n"
+        info_text += "[i] Consulta rutas especificas\n   en el panel izquierdo"
         
         ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
-               fontsize=9, verticalalignment='top',
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+               fontsize=9, verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='#FEF9E7', 
+                        edgecolor='#F39C12', alpha=0.95))
         
-        # Agregar leyenda si hay aristas bidireccionales
+        # Agregar leyenda mejorada
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+        leyenda_elementos = [
+            Patch(facecolor='#AED6F1', edgecolor='#2980B9', linewidth=2, label=f'Nodos ({n} total)')
+        ]
         if aristas_bidireccionales:
-            from matplotlib.lines import Line2D
-            leyenda_elementos = [
-                Line2D([0], [0], color='#3498DB', linewidth=2.5, label='Arista dirección 1'),
-                Line2D([0], [0], color='#E74C3C', linewidth=2.5, label='Arista dirección 2 (puede tener distinto peso)')
-            ]
-            if aristas_simples:
-                leyenda_elementos.append(
-                    Line2D([0], [0], color='gray', linewidth=2, label='Arista unidireccional')
-                )
-            ax.legend(handles=leyenda_elementos, loc='lower right', fontsize=8)
+            leyenda_elementos.append(
+                Line2D([0], [0], color='#3498DB', linewidth=2.5, label='Arista dirección →'))
+            leyenda_elementos.append(
+                Line2D([0], [0], color='#E74C3C', linewidth=2.5, label='Arista dirección ←'))
+        if aristas_simples:
+            leyenda_elementos.append(
+                Line2D([0], [0], color='#7F8C8D', linewidth=2.5, label='Arista unidireccional'))
         
-        plt.tight_layout()
+        ax.legend(handles=leyenda_elementos, loc='lower right', fontsize=8, 
+                 framealpha=0.9, fancybox=True)
+        
+        fig.tight_layout()
         
         # Frame para botones
         frame_botones_fw = ttk.Frame(ventana)
-        frame_botones_fw.pack(side='bottom', fill='x', padx=5, pady=5)
+        frame_botones_fw.pack(side='bottom', fill='x', padx=10, pady=5)
         
-        ttk.Label(frame_botones_fw, text="💡 Si los nodos se superponen:").pack(side='left', padx=5)
+        ttk.Label(frame_botones_fw, text="🛠️ Opciones:").pack(side='left', padx=5)
         ttk.Button(frame_botones_fw, text="🔄 Regenerar Layout", 
                   command=lambda: self._regenerar_floyd_warshall(ventana, grafo, dist, nodos_lista)).pack(side='left', padx=5)
+        ttk.Button(frame_botones_fw, text="💾 Guardar Imagen", 
+                  command=lambda: self._guardar_figura(fig, ventana, "floyd_warshall")).pack(side='left', padx=5)
         
         # Mostrar en ventana
         canvas = FigureCanvasTkAgg(fig, master=ventana)
@@ -2527,7 +2726,7 @@ D E 2"""
         return flujo_total, caminos_encontrados, visitados, iteraciones
     
     def _visualizar_flujo_maximo(self, grafo, caminos, origen, destino, visitados):
-        """Visualiza el grafo de flujo máximo con flujos en las aristas"""
+        """Visualiza el grafo de flujo máximo con flujos en las aristas - Versión mejorada"""
         # Calcular flujo real en cada arista
         flujos = {}
         for u in grafo:
@@ -2544,7 +2743,7 @@ D E 2"""
         # Crear nueva ventana
         ventana = tk.Toplevel(self.root)
         ventana.title(f"Flujo Máximo: {origen} → {destino}")
-        ventana.geometry("900x700")
+        ventana.geometry("1100x800")
         
         # Crear grafo de NetworkX (dirigido)
         G = nx.DiGraph()
@@ -2553,8 +2752,15 @@ D E 2"""
                 flujo_arista = flujos.get((u, v), 0)
                 G.add_edge(u, v, capacity=cap, flow=flujo_arista)
         
+        # Calcular tamaños dinámicos
+        n_nodos = G.number_of_nodes()
+        node_size = self._calcular_tamano_nodos(n_nodos)
+        font_size = self._calcular_tamano_fuente(n_nodos)
+        font_size_edges = max(7, font_size - 1)
+        arrow_size = max(15, 25 - n_nodos)
+        
         # Crear figura
-        fig, ax = plt.subplots(figsize=(10, 8))
+        fig, ax = plt.subplots(figsize=(12, 9))
         
         # Layout inteligente
         pos = self._calcular_layout_inteligente(G)
@@ -2563,16 +2769,17 @@ D E 2"""
         node_colors = []
         for node in G.nodes():
             if node == origen:
-                node_colors.append('lightgreen')
+                node_colors.append('#2ECC71')  # Verde brillante para origen
             elif node == destino:
-                node_colors.append('salmon')
+                node_colors.append('#E74C3C')  # Rojo para destino
             elif node in visitados:
-                node_colors.append('lightblue')  # Lado del origen (corte)
+                node_colors.append('#AED6F1')  # Azul claro - Lado del origen
             else:
-                node_colors.append('lightyellow')  # Lado del destino (corte)
+                node_colors.append('#F9E79F')  # Amarillo - Lado del destino
         
         nx.draw_networkx_nodes(G, pos, node_color=node_colors, 
-                              node_size=800, ax=ax)
+                              node_size=node_size, ax=ax,
+                              edgecolors='#2C3E50', linewidths=2)
         
         # Dibujar aristas con diferentes colores según si cruzan el corte
         edges_corte = []
@@ -2593,75 +2800,103 @@ D E 2"""
             else:
                 edges_sin_flujo.append((u, v))
         
-        # Aristas sin flujo (gris claro)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_sin_flujo, 
-                              edge_color='lightgray', width=1.5, 
-                              arrows=True, arrowsize=15, ax=ax, style='dashed')
+        # Aristas sin flujo (gris, discontinuas)
+        if edges_sin_flujo:
+            nx.draw_networkx_edges(G, pos, edgelist=edges_sin_flujo, 
+                                  edge_color='#BDC3C7', width=1.5, 
+                                  arrows=True, arrowsize=arrow_size, ax=ax, 
+                                  style='dashed',
+                                  min_source_margin=15, min_target_margin=15)
         
         # Aristas con flujo parcial (azul)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_con_flujo, 
-                              edge_color='blue', width=2.5, 
-                              arrows=True, arrowsize=20, ax=ax)
+        if edges_con_flujo:
+            nx.draw_networkx_edges(G, pos, edgelist=edges_con_flujo, 
+                                  edge_color='#3498DB', width=2.5, 
+                                  arrows=True, arrowsize=arrow_size, ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
         
         # Aristas saturadas (verde oscuro)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_saturadas, 
-                              edge_color='darkgreen', width=3, 
-                              arrows=True, arrowsize=20, ax=ax)
+        if edges_saturadas:
+            nx.draw_networkx_edges(G, pos, edgelist=edges_saturadas, 
+                                  edge_color='#27AE60', width=3.5, 
+                                  arrows=True, arrowsize=arrow_size + 3, ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
         
-        # Aristas del corte en rojo (gruesas)
-        nx.draw_networkx_edges(G, pos, edgelist=edges_corte, 
-                              edge_color='red', width=4, 
-                              arrows=True, arrowsize=25, ax=ax)
+        # Aristas del corte en rojo (muy gruesas y destacadas)
+        if edges_corte:
+            nx.draw_networkx_edges(G, pos, edgelist=edges_corte, 
+                                  edge_color='#C0392B', width=4.5, 
+                                  arrows=True, arrowsize=arrow_size + 8, ax=ax,
+                                  min_source_margin=15, min_target_margin=15)
         
         # Etiquetas de nodos
-        nx.draw_networkx_labels(G, pos, font_size=12, font_weight='bold', ax=ax)
+        nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight='bold', ax=ax)
         
-        # Etiquetas de aristas mostrando flujo/capacidad
+        # Etiquetas de aristas mostrando flujo/capacidad con fondo
         edge_labels = {}
         for u, v in G.edges():
             flujo_arista = flujos.get((u, v), 0)
             cap_arista = grafo[u][v]
             edge_labels[(u, v)] = f"{flujo_arista:.0f}/{cap_arista:.0f}"
         
-        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=9, ax=ax)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=font_size_edges, ax=ax,
+                                    bbox=dict(boxstyle='round,pad=0.2', facecolor='white', 
+                                             edgecolor='none', alpha=0.9))
         
         # Calcular flujo total
         flujo_total = sum(flujos.get((origen, v), 0) for v in grafo.get(origen, {}).keys())
         
-        ax.set_title(f"Flujo Máximo: {flujo_total:.0f}\n{origen} → {destino} (Rojo = Corte mínimo)", 
-                    fontsize=14, fontweight='bold')
+        ax.set_title(f"Flujo Máximo: {flujo_total:.0f} unidades\n{origen} → {destino}", 
+                    fontsize=14, fontweight='bold', pad=15)
         ax.axis('off')
         
-        # Leyenda mejorada
-        legend_text = f"🟢 Origen: {origen}\n🔴 Destino: {destino}\n"
-        legend_text += f"📊 Flujo máximo: {flujo_total:.0f}\n"
-        legend_text += f"🔵 Caminos aumentantes: {len(caminos)}\n\n"
-        legend_text += "Colores de aristas:\n"
-        legend_text += "• Rojo = Corte mínimo\n"
-        legend_text += "• Verde oscuro = Saturada\n"
-        legend_text += "• Azul = Con flujo parcial\n"
-        legend_text += "• Gris = Sin flujo"
+        # Leyenda mejorada con más información
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
         
-        ax.text(0.02, 0.98, legend_text, transform=ax.transAxes,
-               fontsize=9, verticalalignment='top',
-               bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        leyenda_elementos = [
+            Patch(facecolor='#2ECC71', edgecolor='#2C3E50', linewidth=2, label=f'Origen: {origen}'),
+            Patch(facecolor='#E74C3C', edgecolor='#2C3E50', linewidth=2, label=f'Destino: {destino}'),
+            Patch(facecolor='#AED6F1', edgecolor='#2C3E50', linewidth=2, label='Lado origen (S)'),
+            Patch(facecolor='#F9E79F', edgecolor='#2C3E50', linewidth=2, label='Lado destino (T)'),
+            Line2D([0], [0], color='#C0392B', linewidth=4.5, label='[X] Corte minimo'),
+            Line2D([0], [0], color='#27AE60', linewidth=3.5, label='Arista saturada'),
+            Line2D([0], [0], color='#3498DB', linewidth=2.5, label='Con flujo parcial'),
+            Line2D([0], [0], color='#BDC3C7', linewidth=1.5, linestyle='--', label='Sin flujo'),
+        ]
+        ax.legend(handles=leyenda_elementos, loc='upper right', fontsize=8, 
+                 framealpha=0.95, fancybox=True, ncol=1)
         
-        plt.tight_layout()
+        # Cuadro de resumen
+        resumen = f"[*] RESUMEN\n{'─' * 20}\n"
+        resumen += f"Flujo maximo: {flujo_total:.0f}\n"
+        resumen += f"Caminos usados: {len(caminos)}\n"
+        resumen += f"Aristas del corte: {len(edges_corte)}\n"
+        resumen += f"Aristas saturadas: {len(edges_saturadas)}\n"
+        
+        ax.text(0.02, 0.98, resumen, transform=ax.transAxes,
+               fontsize=9, verticalalignment='top', family='monospace',
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='#FEF9E7', 
+                        edgecolor='#F39C12', alpha=0.95))
+        
+        fig.tight_layout()
         
         # Frame para botones
         frame_botones_flujo = ttk.Frame(ventana)
-        frame_botones_flujo.pack(side='bottom', fill='x', padx=5, pady=5)
+        frame_botones_flujo.pack(side='bottom', fill='x', padx=10, pady=5)
         
-        ttk.Label(frame_botones_flujo, text="💡 Si los nodos se superponen:").pack(side='left', padx=5)
+        ttk.Label(frame_botones_flujo, text="🛠️ Opciones:").pack(side='left', padx=5)
         ttk.Button(frame_botones_flujo, text="🔄 Regenerar Layout", 
                   command=lambda: self._regenerar_flujo_maximo(ventana, grafo, caminos, origen, destino, visitados)).pack(side='left', padx=5)
+        ttk.Button(frame_botones_flujo, text="💾 Guardar Imagen", 
+                  command=lambda: self._guardar_figura(fig, ventana, f"flujo_maximo_{origen}_{destino}")).pack(side='left', padx=5)
         
         # Mostrar en ventana
         canvas = FigureCanvasTkAgg(fig, master=ventana)
         canvas.draw()
         canvas.get_tk_widget().pack(fill='both', expand=True)
         
-        self.status_bar.config(text="✅ Visualización de Flujo Máximo creada")
+        self._actualizar_status("Visualización de Flujo Máximo creada", "success")
     
     def _regenerar_flujo_maximo(self, ventana, grafo, caminos, origen, destino, visitados):
         """Regenera la visualización de Flujo Máximo"""
